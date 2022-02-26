@@ -5,6 +5,9 @@
 #include "threads/thread.h"
 #include "userprog/process.h"
 
+#include "filesys/file.h"
+#include <string.h>
+
 static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
@@ -19,11 +22,32 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
    * include it in your final submission.
    */
 
-  /* printf("System call number: %d\n", args[0]); */
+  // printf("System call number: %d\n", args[0]);
 
   if (args[0] == SYS_EXIT) {
     f->eax = args[1];
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
     process_exit();
+  } else if (args[0] == SYS_WRITE) {
+    int fd = args[1];
+    const void *buffer = (void *) args[2];
+    size_t size = (size_t) args[3];
+
+    size_t buffer_len = strlen((char *) buffer);
+
+    if (fd == STDOUT_FILENO) {
+      if (buffer_len > size) {
+        putbuf(buffer, size);
+      } else {
+        putbuf(buffer, buffer_len);
+      }
+    } else {
+      struct process *pcb = thread_current()->pcb;
+      // get file from list of open files 
+      // off_t bytes_written = file_write(file, buffer, size);
+    }
+  } else if (args[0] == SYS_PRACTICE) {
+    int i = args[1];
+    f->eax = i + 1;
   }
 }
