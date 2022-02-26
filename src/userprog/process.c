@@ -60,6 +60,7 @@ pid_t process_execute(const char* fname_and_args) {
     return TID_ERROR;
   strlcpy(fn_copy, fname_and_args, PGSIZE);
   
+  // @Aaron Parse args into array
   int i;
   int space_count = 0;
   for (i = 0; i < strlen(fn_copy); i++) {
@@ -76,6 +77,7 @@ pid_t process_execute(const char* fname_and_args) {
   for (i = 0; i < space_count; i++) {
     argv[i] = strtok_r(fn_copy, " ", save_ptr);
   }
+  // End parse args into array
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, argv);
@@ -103,6 +105,7 @@ static void start_process(void* argv_) {
     new_pcb->pagedir = NULL;
     t->pcb = new_pcb;
 
+    // @Aaron Add initialize active_files
     new_pcb->active_files = malloc(sizeof(struct list));
 
     // Continue initializing the PCB as normal
@@ -498,6 +501,7 @@ static bool setup_stack(char** argv, void** esp) {
       palloc_free_page(kpage);
   }
 
+  // @Aaron start passing in args
   int argc = (int) sizeof(argv) / sizeof(argv[0]);
   for (int i = 0; i < argc; i++) {
     esp -= strlen(argv[i]);
@@ -508,7 +512,7 @@ static bool setup_stack(char** argv, void** esp) {
   int align = esp % 4;
   esp -= align;
   memcpy(esp, NULL, "0000", align);
-
+  // End start passing in args
 
 
 
