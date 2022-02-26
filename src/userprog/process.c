@@ -260,7 +260,7 @@ struct Elf32_Phdr {
 #define PF_W 2 /* Writable. */
 #define PF_R 4 /* Readable. */
 
-static bool setup_stack(void** esp);
+static bool setup_stack(const char* fname_and_args, void** esp);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
@@ -468,7 +468,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
    user virtual memory. */
 static bool setup_stack(const char* fname_and_args, void** esp) {
   uint8_t* kpage;
-  bool success = false;
+  bool success = false; 
 
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
@@ -522,15 +522,25 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
     arg_addr[i] = (char*) *esp;
     i++;
   }
+  // Stack alignment: if esp isn't word aligned, decrement it to be word aligned
+  *esp -= ((int)*esp) % 4; 
+  //make room for adresses and null pointer
+  *esp -= sizeof(arg_addr);
+  //add adresses and null pointer
+  memcpy(*esp, arg_addr, sizeof(arg_addr));
+  // add arg v, followed by argc
+  char* v_ptr = (char *) *esp;
+  *esp -= 4;
+  memcpy(*esp, &v_ptr, sizeof (char*));
+  *esp -= 4;
+  //dereference void** to void*, cast void * to int *, then dereference again
+  *((int *) *esp) = (int) argc;
+  // add void* fake return address
+  *esp -= 4;
+  void* ra = 0;
+  memcpy(*esp, &ra, sizeof(void *));
 
-  
-
-  // do alignment TODO, not exactly sure how to do this yet:
-  int align = esp % 16;
-  memcpy(esp, NULL, "0000", align);
   // End start passing in args
-
-
 
   return success;
 }
