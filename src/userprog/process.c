@@ -48,7 +48,7 @@ void userprog_init(void) {
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
-pid_t process_execute(const char* file_name) {
+pid_t process_execute(const char* fname_and_args) {
   char* fn_copy;
   tid_t tid;
 
@@ -58,10 +58,27 @@ pid_t process_execute(const char* file_name) {
   fn_copy = palloc_get_page(0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy(fn_copy, file_name, PGSIZE);
+  strlcpy(fn_copy, fname_and_args, PGSIZE);
+  
+  int i;
+  int space_count = 0;
+  for (i = 0; i < strlen(fn_copy); i++) {
+    if (fn_copy[i] == " ") {
+      space_count += 1;
+    }
+  }
+  
+  char** save_ptr;
+  char* argv[space_count+1];
+  // char* file_name = strtok_r(fn_copy, " ", save_ptr);
+  // char* token = strtok_r(fn_copy, " ", save_ptr);
+  
+  for (i = 0; i < space_count; i++) {
+    argv[i] = strtok_r(fn_copy, " ", save_ptr);
+  }
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, argv);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   return tid;
@@ -69,8 +86,8 @@ pid_t process_execute(const char* file_name) {
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+static void start_process(void* argv_) {
+  char* argv = (char**) argv_;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -86,6 +103,8 @@ static void start_process(void* file_name_) {
     new_pcb->pagedir = NULL;
     t->pcb = new_pcb;
 
+    new_pcb->active_files = malloc(sizeof(struct list));
+
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
@@ -97,7 +116,7 @@ static void start_process(void* file_name_) {
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
-    success = load(file_name, &if_.eip, &if_.esp);
+    success = load(argv, &if_.eip, &if_.esp);
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -111,7 +130,7 @@ static void start_process(void* file_name_) {
   }
 
   /* Clean up. Exit on failure or jump to userspace */
-  palloc_free_page(file_name);
+  palloc_free_page(argv[0]);
   if (!success) {
     sema_up(&temporary);
     thread_exit();
@@ -266,13 +285,15 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool load(const char* file_name, void (**eip)(void), void** esp) {
+bool load(char** argv, void (**eip)(void), void** esp) {
   struct thread* t = thread_current();
   struct Elf32_Ehdr ehdr;
   struct file* file = NULL;
   off_t file_ofs;
   bool success = false;
   int i;
+
+  char* file_name = argv[0];
 
   /* Allocate and activate page directory. */
   t->pcb->pagedir = pagedir_create();
@@ -346,7 +367,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   }
 
   /* Set up stack. */
-  if (!setup_stack(esp))
+  if (!setup_stack(argv, esp))
     goto done;
 
   /* Start address. */
@@ -463,7 +484,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool setup_stack(void** esp) {
+static bool setup_stack(char** argv, void** esp) {
   uint8_t* kpage;
   bool success = false;
 
@@ -472,9 +493,25 @@ static bool setup_stack(void** esp) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
     if (success)
       *esp = PHYS_BASE;
+      // *esp = PHYS_BASE - 20;
     else
       palloc_free_page(kpage);
   }
+
+  int argc = (int) sizeof(argv) / sizeof(argv[0]);
+  for (int i = 0; i < argc; i++) {
+    esp -= strlen(argv[i]);
+    memcpy(esp, argv[i], strlen(argv[i]));
+  }
+
+  // do alignment
+  int align = esp % 4;
+  esp -= align;
+  memcpy(esp, NULL, "0000", align);
+
+
+
+
   return success;
 }
 

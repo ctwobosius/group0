@@ -308,6 +308,7 @@ static char** parse_options(char** argv) {
 
 /* Runs the task specified in ARGV[1]. */
 static void run_task(char** argv) {
+  // printf("\n\nfirst: %s, second: %s, third: %s\n\n", argv[0], argv[1], argv[2]);
   const char* task = argv[1];
 
   printf("Executing '%s':\n", task);
