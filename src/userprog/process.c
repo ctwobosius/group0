@@ -59,28 +59,9 @@ pid_t process_execute(const char* fname_and_args) {
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy(fn_copy, fname_and_args, PGSIZE);
-  
-  // @Aaron Parse args into array
-  int i;
-  int space_count = 0;
-  for (i = 0; i < strlen(fn_copy); i++) {
-    if (fn_copy[i] == " ") {
-      space_count += 1;
-    }
-  }
-  
-  char** save_ptr;
-  char* argv[space_count+1];
-  // char* file_name = strtok_r(fn_copy, " ", save_ptr);
-  // char* token = strtok_r(fn_copy, " ", save_ptr);
-  
-  for (i = 0; i < space_count; i++) {
-    argv[i] = strtok_r(fn_copy, " ", save_ptr);
-  }
-  // End parse args into array
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, argv);
+  tid = thread_create(fname_and_args, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   return tid;
@@ -88,8 +69,8 @@ pid_t process_execute(const char* fname_and_args) {
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* argv_) {
-  char* argv = (char**) argv_;
+static void start_process(void* fname_and_args) {
+  char* fname_args = (char*) fname_and_args;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -119,7 +100,7 @@ static void start_process(void* argv_) {
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
-    success = load(argv, &if_.eip, &if_.esp);
+    success = load(fname_args, &if_.eip, &if_.esp);
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -133,7 +114,7 @@ static void start_process(void* argv_) {
   }
 
   /* Clean up. Exit on failure or jump to userspace */
-  palloc_free_page(argv[0]);
+  palloc_free_page(fname_args);
   if (!success) {
     sema_up(&temporary);
     thread_exit();
@@ -288,15 +269,13 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool load(char** argv, void (**eip)(void), void** esp) {
+bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   struct thread* t = thread_current();
   struct Elf32_Ehdr ehdr;
   struct file* file = NULL;
   off_t file_ofs;
   bool success = false;
   int i;
-
-  char* file_name = argv[0];
 
   /* Allocate and activate page directory. */
   t->pcb->pagedir = pagedir_create();
@@ -305,9 +284,9 @@ bool load(char** argv, void (**eip)(void), void** esp) {
   process_activate();
 
   /* Open executable file. */
-  file = filesys_open(file_name);
+  file = filesys_open(fname_and_args);
   if (file == NULL) {
-    printf("load: %s: open failed\n", file_name);
+    printf("load: %s: open failed\n", fname_and_args);
     goto done;
   }
 
@@ -315,7 +294,7 @@ bool load(char** argv, void (**eip)(void), void** esp) {
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
       ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024) {
-    printf("load: %s: error loading executable\n", file_name);
+    printf("load: %s: error loading executable\n", fname_and_args);
     goto done;
   }
 
@@ -370,7 +349,7 @@ bool load(char** argv, void (**eip)(void), void** esp) {
   }
 
   /* Set up stack. */
-  if (!setup_stack(argv, esp))
+  if (!setup_stack(fname_and_args, esp))
     goto done;
 
   /* Start address. */
@@ -487,7 +466,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool setup_stack(char** argv, void** esp) {
+static bool setup_stack(const char* fname_and_args, void** esp) {
   uint8_t* kpage;
   bool success = false;
 
@@ -501,16 +480,53 @@ static bool setup_stack(char** argv, void** esp) {
       palloc_free_page(kpage);
   }
 
-  // @Aaron start passing in args
-  int argc = (int) sizeof(argv) / sizeof(argv[0]);
-  for (int i = 0; i < argc; i++) {
-    esp -= strlen(argv[i]);
-    memcpy(esp, argv[i], strlen(argv[i]));
+
+/* @Calvin Parse args into array */
+
+  // Create copies since strtok_r will modify the char*
+  size_t fna_size = strlen(fname_and_args) + 1;
+  char fn_cpy2[fna_size];
+  strlcpy(fn_cpy2, fname_and_args, fna_size);
+
+  size_t argc = 0;
+  char** save_ptr;
+  
+  // Note: "In subsequent calls [to strtok_r], str should be NULL, 
+  // and saveptr should be unchanged since the previous call.
+  // https://stackoverflow.com/questions/15961253/c-correct-usage-of-strtok-r
+  for (
+        char* tok = strtok_r(fn_cpy2, " ", save_ptr); 
+        tok != NULL; 
+        tok = strtok_r(NULL, " ", save_ptr)
+      ) {
+    argc++;
   }
 
-  // do alignment
-  int align = esp % 4;
-  esp -= align;
+  // We now have argc. Let's actually get our arguments into an array.
+  // Copy since strtok_r will modify the char*
+  strlcpy(fn_cpy2, fname_and_args, strlen(fname_and_args) + 1);
+  char* arg_addr[argc + 1]; // list of arg addresses
+  arg_addr[argc] = NULL; // null terminator
+
+  // put arguments into stack, and record addresses of stack arguments 
+  // (addresses will be useful in next steps of arg passing)
+  size_t i = 0;
+  for (
+        char* tok = strtok_r(fn_cpy2, " ", save_ptr); 
+        tok != NULL; 
+        tok = strtok_r(NULL, " ", save_ptr)
+      ) {
+    size_t arg_len = strlen(tok) + 1;
+    *esp -= arg_len;
+    memcpy(*esp, tok, arg_len);
+    arg_addr[i] = (char*) *esp;
+    i++;
+  }
+
+  
+
+  // do alignment TODO, not exactly sure how to do this yet:
+  int align = esp % 16;
   memcpy(esp, NULL, "0000", align);
   // End start passing in args
 
