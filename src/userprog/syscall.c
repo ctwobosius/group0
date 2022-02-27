@@ -13,6 +13,7 @@ static void syscall_handler(struct intr_frame*);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
 void check_valid_frame(struct intr_frame* f) {
+  // TODO: actually make this not pseudocode
   if (
     f == NULL || // null pointer
     !is_user_vaddr(f)) || // illegal pointer, section A.3
