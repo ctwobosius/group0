@@ -4,36 +4,43 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h" 
 
 #include "filesys/file.h"
 #include <string.h>
 
 static void syscall_handler(struct intr_frame*);
+void exit_syscall(int status);
+void check_valid_frame(struct intr_frame* f, uint32_t* args);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
-void check_valid_frame(struct intr_frame* f) {
+void check_valid_frame(struct intr_frame* f, uint32_t* args) {
   // TODO: actually make this not pseudocode
+  uint32_t* border = args + sizeof(uint32_t);
   if (
-    f == NULL || // null pointer
-    !is_user_vaddr(f)) || // illegal pointer, section A.3
-    pagedir_get_page(the_page_of_f) || // invalid pointer
-    check_if_on_boundary(f) // memory lies on page boundary
-  )
+    args == NULL || // null pointer
+    !(is_user_vaddr(args)) || // illegal pointer, section A.3
+    (pagedir_get_page(thread_current()->pcb->pagedir, args) == NULL) ||//pagedir_get_page(the_page_of_f) || // invalid pointer
+    !(is_user_vaddr(border)) || (pagedir_get_page(thread_current()->pcb->pagedir, border)==NULL)//check_if_on_boundary(f) // memory lies on page boundary
+  ) {
+    f->eax = -1;
     exit_syscall(-1);
-    return;
+  }
+  return;
 }
 
 void exit_syscall(int status)
 {
-  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
+  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   process_exit();
 }
 
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-
+  check_valid_frame(f, args);
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -60,7 +67,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         putbuf(buffer, buffer_len);
       }
     } else {
-      struct process *pcb = thread_current()->pcb;
+      //struct process *pcb = thread_current()->pcb;
       // get file from list of open files 
       // off_t bytes_written = file_write(file, buffer, size);
     }
