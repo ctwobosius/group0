@@ -15,7 +15,8 @@ void NO_INLINE check_pointer_alignment(void* candidate) {
   uintptr_t address_last_nybble = address & 0xf;
   msg("last nybble of candidate is 0x%x", address_last_nybble);
   if (address_last_nybble != 0x0) {
-    fail("candidate is not aligned to a 16-byte boundary");
+    fail("\naddress_last_nybble: %d", address_last_nybble);
+    // fail("candidate is not aligned to a 16-byte boundary");
   }
 }
 
