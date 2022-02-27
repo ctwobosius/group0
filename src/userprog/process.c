@@ -61,7 +61,7 @@ pid_t process_execute(const char* fname_and_args) {
   strlcpy(fn_copy, fname_and_args, PGSIZE);
 
   /* Aaron's addition: get filename for filesys_open */
-  char* fn_copy2 = malloc(sizeof(fname_and_args));
+  char fn_copy2[strlen(fname_and_args) + 1];
   strlcpy(fn_copy2, fname_and_args, strlen(fname_and_args) + 1);
   char* save_ptr;
   char* file_name = strtok_r(fn_copy2, " ", &save_ptr);
@@ -70,8 +70,6 @@ pid_t process_execute(const char* fname_and_args) {
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
-
-  free(fn_copy2);
   
   return tid;
 }
@@ -287,7 +285,8 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   int i;
 
   /* Aaron's addition: get filename for filesys_open */
-  char* fn_copy = malloc(sizeof(fname_and_args));
+  // char* fn_copy = malloc(sizeof(fname_and_args));
+  char fn_copy[strlen(fname_and_args) + 1];
   strlcpy(fn_copy, fname_and_args, strlen(fname_and_args) + 1);
   char* save_ptr;
   char* file_name = strtok_r(fn_copy, " ", &save_ptr);
@@ -313,7 +312,7 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
     goto done;
   }
 
-  free(fn_copy);
+  // free(fn_copy);
 
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
@@ -537,7 +536,7 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
     arg_len = strlen(tok) + 1;
     *esp -= arg_len;
     memcpy(*esp, tok, arg_len);
-    arg_addr[argc-i-1] = (char*) *esp;  // push args in right-to-left order
+    arg_addr[i] = (char*) *esp;  // push args in right-to-left order
     i++;
   }
 
