@@ -534,21 +534,26 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
   // this needs to happen at some point but i'm not sure where (aaron)
   // free(fn_cpy2);
 
-  // Stack alignment: if esp isn't word aligned, decrement it to be word aligned
-  *esp -= ((int)*esp) % 4;
+  // Stack alignment: make esp aligned to 16 byte boundary
+  *esp -= ((uint32_t)*esp) % 16;
+
   // make room for addresses and null pointer
   *esp -= sizeof(arg_addr);
+
   // add adresses and null pointer
   memcpy(*esp, arg_addr, sizeof(arg_addr));
+
   // add argv, followed by argc
   char* v_ptr = (char *) *esp;
-  *esp -= 4;
+  *esp -= sizeof (char*);
   memcpy(*esp, &v_ptr, sizeof (char*));
-  *esp -= 4;
+
   //dereference void** to void*, cast void * to int *, then dereference again
+  *esp -= sizeof (char*);
   *((int *) *esp) = (int) argc;
+
   // add void* fake return address
-  *esp -= 4;
+  *esp -= sizeof (char*);
   void* ra = 0;
   memcpy(*esp, &ra, sizeof(void *));
 
