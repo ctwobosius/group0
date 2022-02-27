@@ -492,7 +492,7 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
 /* @Calvin Parse args into array */
 
   // Create copies since strtok_r will modify the char*
-  char* fn_cpy2 = malloc(sizeof(fname_and_args));
+  char fn_cpy2[strlen(fname_and_args) + 1];
   strlcpy(fn_cpy2, fname_and_args, strlen(fname_and_args) + 1);
 
   size_t argc = 0;
@@ -514,6 +514,7 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
   strlcpy(fn_cpy2, fname_and_args, strlen(fname_and_args) + 1);
   char* arg_addr[argc + 1]; // list of arg addresses
   arg_addr[argc] = NULL; // null terminator
+  void* ebp = *esp;
 
   // put arguments into stack, and record addresses of stack arguments 
   // (addresses will be useful in next steps of arg passing)
@@ -531,13 +532,17 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
     i++;
   }
 
-  // this needs to happen at some point but i'm not sure where (aaron)
-  // free(fn_cpy2);
-
   // Stack alignment: make esp aligned to 16 byte boundary
-  size_t alignment = ((uint32_t)*esp) % 16;
-  *esp -= alignment;
-  memset(*esp, 0, alignment);
+  size_t offset = ((size_t) (ebp - *esp));
+  size_t size_of_arg_addr = (argc+1) * (sizeof(char*));
+  // Add above with sizeof(argv) and sizeof(argc)
+  offset = (offset + size_of_arg_addr + sizeof(char**) + sizeof(int)) % 16;
+
+  // Above is num bytes past the 16 byte boundary, so subtract from 16
+  *esp -= 16 - offset;
+
+  // Set offset bytes to null
+  memset(*esp, 0x0, offset);
 
   // make room for addresses and null pointer
   *esp -= sizeof(arg_addr);
@@ -555,7 +560,7 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
   *((int *) *esp) = (int) argc;
 
   // add void* fake return address
-  *esp -= sizeof (char*);
+  *esp -= sizeof (void*);
   void* ra = 0;
   memcpy(*esp, &ra, sizeof(void *));
 
