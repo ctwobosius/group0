@@ -60,10 +60,19 @@ pid_t process_execute(const char* fname_and_args) {
     return TID_ERROR;
   strlcpy(fn_copy, fname_and_args, PGSIZE);
 
+  /* Aaron's addition: get filename for filesys_open */
+  char* fn_copy2 = malloc(sizeof(fname_and_args));
+  strlcpy(fn_copy2, fname_and_args, strlen(fname_and_args) + 1);
+  char* save_ptr;
+  char* file_name = strtok_r(fn_copy2, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(fname_and_args, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
+
+  free(fn_copy2);
+  
   return tid;
 }
 
@@ -542,7 +551,7 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
   *esp -= 16 - offset;
 
   // Set offset bytes to null
-  memset(*esp, 0x0, offset);
+  memset(*esp, 0x0, 16 - offset);
 
   // make room for addresses and null pointer
   *esp -= sizeof(arg_addr);
