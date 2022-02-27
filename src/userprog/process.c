@@ -535,7 +535,9 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
   // free(fn_cpy2);
 
   // Stack alignment: make esp aligned to 16 byte boundary
-  *esp -= ((uint32_t)*esp) % 16;
+  size_t alignment = ((uint32_t)*esp) % 16;
+  *esp -= alignment;
+  memset(*esp, 0, alignment);
 
   // make room for addresses and null pointer
   *esp -= sizeof(arg_addr);
