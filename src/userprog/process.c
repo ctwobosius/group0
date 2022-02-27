@@ -22,7 +22,7 @@
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
-static bool load(const char* file_name, void (**eip)(void), void** esp);
+static bool load(const char* fname_and_args, void (**eip)(void), void** esp);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -87,7 +87,7 @@ static void start_process(void* fname_and_args) {
     t->pcb = new_pcb;
 
     // @Aaron Add initialize active_files
-    new_pcb->active_files = malloc(sizeof(struct list));
+    // new_pcb->active_files = malloc(sizeof(struct list));
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
@@ -277,6 +277,12 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   bool success = false;
   int i;
 
+  /* Aaron's addition: get filename for filesys_open */
+  char* fn_copy = malloc(sizeof(fname_and_args));
+  strlcpy(fn_copy, fname_and_args, strlen(fname_and_args) + 1);
+  char* save_ptr;
+  char* file_name = strtok_r(fn_copy, " ", &save_ptr);
+
   /* Allocate and activate page directory. */
   t->pcb->pagedir = pagedir_create();
   if (t->pcb->pagedir == NULL)
@@ -284,9 +290,9 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   process_activate();
 
   /* Open executable file. */
-  file = filesys_open(fname_and_args);
+  file = filesys_open(file_name);
   if (file == NULL) {
-    printf("load: %s: open failed\n", fname_and_args);
+    printf("load: %s: open failed\n", file_name);
     goto done;
   }
 
@@ -294,9 +300,11 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
       ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024) {
-    printf("load: %s: error loading executable\n", fname_and_args);
+    printf("load: %s: error loading executable\n", file_name);
     goto done;
   }
+
+  free(fn_copy);
 
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
@@ -484,20 +492,19 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
 /* @Calvin Parse args into array */
 
   // Create copies since strtok_r will modify the char*
-  size_t fna_size = strlen(fname_and_args) + 1;
-  char fn_cpy2[fna_size];
-  strlcpy(fn_cpy2, fname_and_args, fna_size);
+  char* fn_cpy2 = malloc(sizeof(fname_and_args));
+  strlcpy(fn_cpy2, fname_and_args, strlen(fname_and_args) + 1);
 
   size_t argc = 0;
-  char** save_ptr;
+  char* save_ptr;
   
   // Note: "In subsequent calls [to strtok_r], str should be NULL, 
   // and saveptr should be unchanged since the previous call.
   // https://stackoverflow.com/questions/15961253/c-correct-usage-of-strtok-r
   for (
-        char* tok = strtok_r(fn_cpy2, " ", save_ptr); 
+        char* tok = strtok_r(fn_cpy2, " ", &save_ptr);
         tok != NULL; 
-        tok = strtok_r(NULL, " ", save_ptr)
+        tok = strtok_r(NULL, " ", &save_ptr)
       ) {
     argc++;
   }
@@ -511,24 +518,29 @@ static bool setup_stack(const char* fname_and_args, void** esp) {
   // put arguments into stack, and record addresses of stack arguments 
   // (addresses will be useful in next steps of arg passing)
   size_t i = 0;
+  size_t arg_len;
   for (
-        char* tok = strtok_r(fn_cpy2, " ", save_ptr); 
+        char* tok = strtok_r(fn_cpy2, " ", &save_ptr); 
         tok != NULL; 
-        tok = strtok_r(NULL, " ", save_ptr)
+        tok = strtok_r(NULL, " ", &save_ptr)
       ) {
-    size_t arg_len = strlen(tok) + 1;
+    arg_len = strlen(tok) + 1;
     *esp -= arg_len;
     memcpy(*esp, tok, arg_len);
-    arg_addr[i] = (char*) *esp;
+    arg_addr[argc-i-1] = (char*) *esp;  // push args in right-to-left order
     i++;
   }
+
+  // this needs to happen at some point but i'm not sure where (aaron)
+  // free(fn_cpy2);
+
   // Stack alignment: if esp isn't word aligned, decrement it to be word aligned
-  *esp -= ((int)*esp) % 4; 
-  //make room for adresses and null pointer
+  *esp -= ((int)*esp) % 4;
+  // make room for addresses and null pointer
   *esp -= sizeof(arg_addr);
-  //add adresses and null pointer
+  // add adresses and null pointer
   memcpy(*esp, arg_addr, sizeof(arg_addr));
-  // add arg v, followed by argc
+  // add argv, followed by argc
   char* v_ptr = (char *) *esp;
   *esp -= 4;
   memcpy(*esp, &v_ptr, sizeof (char*));

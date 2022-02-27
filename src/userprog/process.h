@@ -28,7 +28,7 @@ struct process {
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
 
-  struct list *active_files;
+//   struct list *active_files;
 };
 
 void userprog_init(void);
