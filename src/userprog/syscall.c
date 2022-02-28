@@ -35,7 +35,7 @@ void check_valid_frame(struct intr_frame* f, uint32_t* args) {
   return;
 }
 
-//returns if an arg is valid;
+// returns if an arg is valid
 bool arg_check (char* arg) {
   return arg != NULL && is_user_vaddr(arg) && (pagedir_get_page(thread_current()->pcb->pagedir, arg) != NULL);
 }
@@ -48,7 +48,7 @@ void exit_syscall(int status)
 }
 
 
-//called from syscall_handler to actually do the reading
+// called from syscall_handler to actually do the reading
 void do_read(struct intr_frame *f UNUSED, uint32_t* args) {
   if (!arg_check((char*) args[2]) || 
       !arg_check((char*) args[2] + (size_t)args[3] )) //check if end of buffer is valid
