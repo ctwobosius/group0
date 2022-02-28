@@ -17,8 +17,12 @@ void exit_syscall(int status);
 void check_valid_frame(struct intr_frame* f, uint32_t* args);
 bool arg_check (char* arg);
 void do_read(struct intr_frame *f UNUSED, uint32_t* args);
+int next_fd(uint32_t* args UNUSED);
 
-void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
+void syscall_init(void) { 
+  lock_init(&f_lock);
+  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
+  }
 
 void check_valid_frame(struct intr_frame* f, uint32_t* args) {
   // TODO: actually make this not pseudocode
@@ -40,6 +44,11 @@ bool arg_check (char* arg) {
   return arg != NULL && is_user_vaddr(arg) && (pagedir_get_page(thread_current()->pcb->pagedir, arg) != NULL);
 }
 
+int next_fd(uint32_t* args UNUSED) {
+  int fd = thread_current()->pcb->next_fd;
+  thread_current()->pcb->next_fd += 1;
+  return fd;
+}
 
 void exit_syscall(int status)
 {
@@ -73,6 +82,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_EXIT) {
     f->eax = args[1];
     exit_syscall(args[1]);
+  } else if (args[0] == SYS_OPEN) {
+    return;
   } else if (args[0] == SYS_READ) {
     do_read(f, args);
   } else if (args[0] == SYS_WRITE) {

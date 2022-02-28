@@ -94,7 +94,9 @@ static void start_process(void* fname_and_args) {
     t->pcb = new_pcb;
 
     // @Aaron Add initialize active_files
-    // new_pcb->active_files = malloc(sizeof(struct list));
+    new_pcb->active_files = malloc(sizeof(struct list));
+    list_init(new_pcb->active_files);
+    new_pcb->next_fd = 3;
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
