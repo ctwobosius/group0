@@ -27,9 +27,23 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
-
-//   struct list *active_files;
+  
+  //for file ops
+  struct list *active_files;
+  int next_fd;
 };
+
+//for file op syscalls
+struct file {
+  struct file* infile; // file pointer
+  char* name; // file name
+  int fd; // index of the FILE* instance
+  size_t ref_cnt; // so we know when to free the struct
+  struct list_elem elem;
+} file_t;
+
+
+ 
 
 void userprog_init(void);
 
