@@ -13,6 +13,7 @@
 #include <string.h>
 
 #define MAX_OPEN_FILES 128;
+#define EOF 0;
 
 static void syscall_handler(struct intr_frame*);
 struct file_item* fd_to_file(int fd);
@@ -113,9 +114,9 @@ void do_read(struct intr_frame *f, uint32_t* args) {
     int i = 0;
     for(i = 0; i < size; i ++) {
       char c = input_getc();
-      if (c == EOF) {
-        break;
-      }
+      // if (c == EOF) {
+      //   break;
+      // }
       buf[i] = c;
     }
     f->eax = i;
@@ -153,34 +154,36 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
 
   	case SYS_OPEN:
+      ;
       do_open(f,args);
       break;
 
   	case SYS_READ:
+      ;
       do_read(f, args);
       break;
 
   	case SYS_WRITE:
-      int fd = args[1];
-      const void *buffer = (void *) args[2];
-      size_t size = (size_t) args[3];
-      if (!arg_check((char*) args[2])) {
-        f->eax = -1;
-        exit_syscall(-1);
-      }
-      size_t buffer_len = strlen((char *) buffer);
+      // int fd = args[1];
+      // const void *buffer = (void *) args[2];
+      // size_t size = (size_t) args[3];
+      // if (!arg_check((char*) args[2])) {
+      //   f->eax = -1;
+      //   exit_syscall(-1);
+      // }
+      // size_t buffer_len = strlen((char *) buffer);
 
-      if (fd == STDOUT_FILENO) {
-        if (buffer_len > size) {
-          putbuf(buffer, size);
-        } else {
-          putbuf(buffer, buffer_len);
-        }
-      } else {
-        //struct process *pcb = thread_current()->pcb;
-        // get file from list of open files 
-        // off_t bytes_written = file_write(file, buffer, size);
-      }
+      // if (fd == STDOUT_FILENO) {
+      //   if (buffer_len > size) {
+      //     putbuf(buffer, size);
+      //   } else {
+      //     putbuf(buffer, buffer_len);
+      //   }
+      // } else {
+      //   //struct process *pcb = thread_current()->pcb;
+      //   // get file from list of open files 
+      //   // off_t bytes_written = file_write(file, buffer, size);
+      // }
       break;
     
     case SYS_CREATE:
@@ -188,6 +191,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     
     case SYS_REMOVE:
+      ;
       char* f_name = args[1];
       lock_acquire(&f_lock);
       f->eax = filesys_remove(f_name);
@@ -211,11 +215,13 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
 
     case SYS_EXIT:
+      ;
       f->eax = args[1];
       exit_syscall(args[1]);
       break;
     
     case SYS_PRACTICE:
+      ;
       int i = args[1];
       f->eax = i + 1;
       break;
