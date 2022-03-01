@@ -148,9 +148,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   switch (args[0]) {
 
-    case SYS_EXIT:
-      f->eax = args[1];
-      exit_syscall(args[1]);
+    case SYS_EXEC:
+      // TODO
       break;
 
   	case SYS_OPEN:
@@ -183,8 +182,37 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         // off_t bytes_written = file_write(file, buffer, size);
       }
       break;
+    
+    case SYS_CREATE:
+      // TODO
+      break;
+    
+    case SYS_REMOVE:
+      // TODO
+      break;
+    
+    case SYS_FILESIZE:
+      // TODO
+      break;
+    
+    case SYS_SEEK:
+      // TODO
+      break;
+    
+    case SYS_TELL:
+      // TODO
+      break;
+    
+    case SYS_CLOSE:
+      // TODO
+      break;
 
-  	case SYS_PRACTICE:
+    case SYS_EXIT:
+      f->eax = args[1];
+      exit_syscall(args[1]);
+      break;
+    
+    case SYS_PRACTICE:
       int i = args[1];
       f->eax = i + 1;
       break;
