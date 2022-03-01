@@ -33,15 +33,6 @@ struct process {
   int next_fd;
 };
 
-//for file op syscalls
-struct file {
-  struct file* infile; // file pointer
-  char* name; // file name
-  int fd; // index of the FILE* instance
-  size_t ref_cnt; // so we know when to free the struct
-  struct list_elem elem;
-} file_t;
-
 
  
 
