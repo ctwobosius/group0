@@ -105,6 +105,7 @@ void do_read(struct intr_frame *f, uint32_t* args) {
   int fd = (int) args[1];
   if (fd == STDOUT_FILENO) {
     //what is correct behavior?//TODO
+    f->eax = -1;
     return;
   }
   else if (fd == STDIN_FILENO) {
@@ -150,48 +151,72 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   switch (args[0]) {
 
     case SYS_EXEC:
+			; // verify args
       // TODO
       break;
 
   	case SYS_OPEN:
-      ;
+			; // verify args
       do_open(f,args);
       break;
 
   	case SYS_READ:
-      ;
+			; // verify args
       do_read(f, args);
       break;
 
   	case SYS_WRITE:
-      // int fd = args[1];
-      // const void *buffer = (void *) args[2];
-      // size_t size = (size_t) args[3];
-      // if (!arg_check((char*) args[2])) {
-      //   f->eax = -1;
-      //   exit_syscall(-1);
-      // }
-      // size_t buffer_len = strlen((char *) buffer);
+      lock_acquire(&f_lock);
+      
+      int fd = args[1];
+      if (fd == 0) { // stdin is read only
+        f->eax = -1;
+      }
+      else {
+        const char* buffer = (char*) args[2];
+        size_t size = (size_t) args[3];
+        
+        // Check args
+        if (!arg_check((char*) args[2])) {
+          f->eax = -1;
+          exit_syscall(-1);
+        }
 
-      // if (fd == STDOUT_FILENO) {
-      //   if (buffer_len > size) {
-      //     putbuf(buffer, size);
-      //   } else {
-      //     putbuf(buffer, buffer_len);
-      //   }
-      // } else {
-      //   //struct process *pcb = thread_current()->pcb;
-      //   // get file from list of open files 
-      //   // off_t bytes_written = file_write(file, buffer, size);
-      // }
+        if (fd == 1) { // stdout
+          putbuf(buffer, size);
+        } else {
+          
+        }
+        
+        size_t buffer_len = strlen((char *) buffer);
+
+        if (fd == STDOUT_FILENO) {
+          if (buffer_len > size) {
+            putbuf(buffer, size);
+          } else {
+            putbuf(buffer, buffer_len);
+          }
+        } else {
+          //struct process *pcb = thread_current()->pcb;
+          // get file from list of open files 
+          // off_t bytes_written = file_write(file, buffer, size);
+        }
+        f->eax = size;
+      }
+      lock_release(&f_lock);
       break;
     
     case SYS_CREATE:
+			; // verify args
       // TODO
       break;
     
     case SYS_REMOVE:
-      ;
+			; // verify args
+      if (!arg_check((char*) args[1])) {
+        f->eax = -1;
+        exit_syscall(-1);  
+      }
       char* f_name = args[1];
       lock_acquire(&f_lock);
       f->eax = filesys_remove(f_name);
@@ -199,29 +224,48 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     
     case SYS_FILESIZE:
+			; // verify args
       // TODO
+      if (!arg_check((char*) args[1])) {
+        f->eax = -1;
+        exit_syscall(-1); 
+      }
+      int fd = (int) args[1];
+      struct file_item* f = fd_to_file(fd);
+      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+        f->eax = -1;
+        exit_syscall(-1); 
+      }
+      struct file* infile = f->infile;
+      lock_acquire(&f_lock);
+      f->eax = file_length(infile);
+      lock_release(&f_lock); 
+
       break;
     
     case SYS_SEEK:
+			; // verify args
       // TODO
       break;
     
     case SYS_TELL:
+			; // verify args
       // TODO
       break;
     
     case SYS_CLOSE:
+			; // verify args
       // TODO
       break;
 
     case SYS_EXIT:
-      ;
+			; // verify args
       f->eax = args[1];
       exit_syscall(args[1]);
       break;
     
     case SYS_PRACTICE:
-      ;
+			; // verify args
       int i = args[1];
       f->eax = i + 1;
       break;
