@@ -188,7 +188,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     
     case SYS_REMOVE:
-      // TODO
+      char* f_name = args[1];
+      lock_acquire(&f_lock);
+      f->eax = filesys_remove(f_name);
+      lock_release(&f_lock);
       break;
     
     case SYS_FILESIZE:
