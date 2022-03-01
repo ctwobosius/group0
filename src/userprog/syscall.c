@@ -146,36 +146,47 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   // printf("System call number: %d\n", args[0]);
 
-  if (args[0] == SYS_EXIT) {
-    f->eax = args[1];
-    exit_syscall(args[1]);
-  } else if (args[0] == SYS_OPEN) {
-    do_open(f,args);
-  } else if (args[0] == SYS_READ) {
-    do_read(f, args);
-  } else if (args[0] == SYS_WRITE) {
-    int fd = args[1];
-    const void *buffer = (void *) args[2];
-    size_t size = (size_t) args[3];
-    if (!arg_check((char*) args[2])) {
-      f->eax = -1;
-      exit_syscall(-1);
-    }
-    size_t buffer_len = strlen((char *) buffer);
+  switch (args[0]) {
 
-    if (fd == STDOUT_FILENO) {
-      if (buffer_len > size) {
-        putbuf(buffer, size);
-      } else {
-        putbuf(buffer, buffer_len);
+    case SYS_EXIT:
+      f->eax = args[1];
+      exit_syscall(args[1]);
+      break;
+
+  	case SYS_OPEN:
+      do_open(f,args);
+      break;
+
+  	case SYS_READ:
+      do_read(f, args);
+      break;
+
+  	case SYS_WRITE:
+      int fd = args[1];
+      const void *buffer = (void *) args[2];
+      size_t size = (size_t) args[3];
+      if (!arg_check((char*) args[2])) {
+        f->eax = -1;
+        exit_syscall(-1);
       }
-    } else {
-      //struct process *pcb = thread_current()->pcb;
-      // get file from list of open files 
-      // off_t bytes_written = file_write(file, buffer, size);
-    }
-  } else if (args[0] == SYS_PRACTICE) {
-    int i = args[1];
-    f->eax = i + 1;
+      size_t buffer_len = strlen((char *) buffer);
+
+      if (fd == STDOUT_FILENO) {
+        if (buffer_len > size) {
+          putbuf(buffer, size);
+        } else {
+          putbuf(buffer, buffer_len);
+        }
+      } else {
+        //struct process *pcb = thread_current()->pcb;
+        // get file from list of open files 
+        // off_t bytes_written = file_write(file, buffer, size);
+      }
+      break;
+
+  	case SYS_PRACTICE:
+      int i = args[1];
+      f->eax = i + 1;
+      break;
   }
 }
