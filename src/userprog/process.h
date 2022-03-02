@@ -17,6 +17,18 @@ typedef tid_t pid_t;
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
+// for keeping track of child processes
+typedef struct child_data {
+  struct semaphore* sema;
+  struct lock* lock;
+  size_t ref_cnt;
+  bool waited;  // has the child been waited on by the parent?
+  bool loaded;  // has the child executable been loaded successfully?
+  int exit_status;   // child exit status
+  int tid;    // child tid
+  struct list_elem elem;
+} child_t;
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -28,9 +40,16 @@ struct process {
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
   
-  //for file ops
-  struct list *active_files;
+  // for file ops
+  struct list* active_files;
   int next_fd;
+
+  // for child processes
+  struct list* child_list;
+  child_t* my_data;
+  
+//   struct list* shared_data_list; // bad aaron
+//   struct semaphore* tid_sema; // bad aaron
 };
 
 void userprog_init(void);

@@ -2,7 +2,7 @@
 #define USERPROG_SYSCALL_H
 #include "list.h"
 
-//for file op syscalls
+// for file op syscalls
 typedef struct file_item {
   struct file* infile; // file pointer
   char* name; // file name

@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"   // @Aaron's addition
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -190,6 +191,20 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   /* Initialize thread. */
   init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
+
+  // /* @Aaron initialize shared data for child */
+  // this section is also in process.c currently, i'm not sure where to put it
+  //
+  // if (thread_current()->pcb) {
+  //   child_t* new_child = malloc(sizeof(child_t));
+  //   new_child->ref_cnt = 2;
+  //   new_child->waited = false;
+  //   new_child->loaded = false;
+  //   new_child->tid = tid;
+  //   sema_init(new_child->sema, 0);
+  //   lock_init(new_child->lock);
+  //   list_push_front(thread_current()->pcb->child_list, &new_child->elem);
+  // }
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame(t, sizeof *kf);
@@ -430,6 +445,7 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->priority = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
+  // t->parent = thread_current();   // parent thread is the one running currently as it is setting up this thread bad aaron
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
