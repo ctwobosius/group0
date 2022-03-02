@@ -27,16 +27,16 @@ static struct lock f_lock;
 /* Reads a byte at user virtual address UADDR. UADDR must be below PHYS_BASE.
 Returns the byte value if successful, -1 if a segfault occurred. */
 static int get_user (const uint8_t *uaddr) {
-int result;
-asm ("movl $1f, %0; movzbl %1, %0; 1:" : "=&a" (result) : "m" (*uaddr));
-return result;
+  int result;
+  asm ("movl $1f, %0; movzbl %1, %0; 1:" : "=&a" (result) : "m" (*uaddr));
+  return result;
 }
 /* Writes BYTE to user address UDST. UDST must be below PHYS_BASE. Returns
 true if successful, false if a segfault occurred. */
 static bool put_user (uint8_t *udst, uint8_t byte) {
-int error_code;
-asm ("movl $1f, %0; movb %b2, %1; 1:" : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-return error_code != -1;
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:" : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  return error_code != -1;
 }
 
 void syscall_init(void) { 
@@ -82,7 +82,6 @@ static struct file_item* init_file(int fd, struct file* file, char* f_name) {
 /* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARGS 
 to ensure we don't read a bad byte both at the beginning and end*/
 static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_args, bool checking_read) {
-  // TODO: actually make this not pseudocode
   // we do - 1 because we don't want to check into the next word (last byte is right before next word)
   uint32_t* border = args + num_args - 1;
   terminate_if_invalid(f, args);
@@ -210,8 +209,6 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
     f->eax = -1;
   }
   else {
-    
-    
     // Check args
     terminate_if_invalid(f, (uint32_t*) buffer);
 
@@ -246,8 +243,7 @@ static void remove_syscall(intr_frame_t* f, uint32_t* args) {
 }
 
 // static void do_wait(intr_frame_t* f, uint32_t* args) {
-//   f;
-//   args;
+  // TODO: do me
 // }
 
 static void syscall_handler(intr_frame_t* f) {
@@ -267,6 +263,7 @@ static void syscall_handler(intr_frame_t* f) {
   switch (args[0]) {
 
     case SYS_EXEC:
+    // TODO: finish this skeleton for EXEC
 			; // verify args
       // Run executable whose name is in arg, pass given arguments
       int pid = process_execute((char*) args[1]);
@@ -280,6 +277,7 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_WAIT:
+      // FILL IN DO WAIT
       // do_wait(f,args);
       break;
 
@@ -303,7 +301,7 @@ static void syscall_handler(intr_frame_t* f) {
     
     case SYS_CREATE:
 			; // verify args
-      // TODO
+      // TODO: check if this is all good
       check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
       lock_acquire(&f_lock);
       f->eax = filesys_create((const char *)args[1], (off_t) args[2]);
@@ -356,18 +354,19 @@ static void syscall_handler(intr_frame_t* f) {
       lock_release(&f_lock); 
     
     case SYS_CLOSE:
-			// check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
-      // fd = (int) args[1];
-      // fi = fd_to_file(fd);
-      // if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
-      //   exit_sys(f, -1);
-      // }
-      // infile = fi->infile;
-      // lock_acquire(&f_lock);
-      // f->eax = file_close(infile);
-      // //TODO: remove the file_item from active_files
-      // free(f);
-      // lock_release(&f_lock); 
+    // TODO: finish CLOSE
+			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      fd = (int) args[1];
+      fi = fd_to_file(fd);
+      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+        exit_sys(f, -1);
+      }
+      infile = fi->infile;
+      lock_acquire(&f_lock);
+      f->eax = file_close(infile);
+      //TODO: remove the file_item from active_files
+      free(f);
+      lock_release(&f_lock); 
       break;
 
     case SYS_EXIT:
@@ -382,3 +381,5 @@ static void syscall_handler(intr_frame_t* f) {
       break;
   }
 }
+
+// general TODO: free all mallocs
