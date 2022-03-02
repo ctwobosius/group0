@@ -135,20 +135,6 @@ static void start_process(void* fname_and_args) {
   }
 
   // get child/parent shared data structure to update with load success status
-  // sema_down(thread_current()->parent->pcb->tid_sema);
-  // struct list* shared_data_list = thread_current()->parent->pcb->shared_data_list;
-  // tid_t mytid = thread_tid();
-  // struct child_data* c;
-  // for (struct list_elem *e = list_begin(shared_data_list);
-  //         e != list_end(shared_data_list);
-  //         e = list_next(e))
-  // {
-  //   c = list_entry(e, struct file_item, elem);
-  //   if (c->tid == mytid) {
-  //     break;
-  //   }
-  // }
-
   if (success) {
     thread_current()->pcb->my_data->loaded = 1;
   } else {
