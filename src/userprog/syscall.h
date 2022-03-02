@@ -2,8 +2,6 @@
 #define USERPROG_SYSCALL_H
 #include "list.h"
 
-void syscall_init(void);
-
 static struct lock f_lock;
 
 //for file op syscalls
@@ -14,5 +12,7 @@ typedef struct file_item {
   size_t ref_cnt; // so we know when to free the struct
   struct list_elem elem;
 } file_t;
+
+void syscall_init(void);
 
 #endif /* userprog/syscall.h */

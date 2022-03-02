@@ -33,13 +33,6 @@ struct process {
   int next_fd;
 };
 
-void exit_syscall(int status);
-void check_valid_frame(struct intr_frame* f, uint32_t* args);
-bool arg_check (char* arg);
-void do_read(struct intr_frame *f, uint32_t* args);
-void do_open(struct intr_frame *f, uint32_t* args);
-int next_fd(uint32_t* args UNUSED);
-
 void userprog_init(void);
 
 pid_t process_execute(const char* file_name);
