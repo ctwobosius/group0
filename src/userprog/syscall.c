@@ -84,11 +84,13 @@ void do_open(struct intr_frame *f, uint32_t* args) {
 
 
 struct file_item* fd_to_file(int fd) {
-  struct list_elem *e;
   struct file_item* f;
-  for (e = list_begin (thread_current()->pcb->active_files);
-      e != list_end (thread_current()->pcb->active_files); e = list_next (e)) {
-    f = list_entry (e, struct file_item, elem);
+  struct list* active_files = thread_current()->pcb->active_files;
+  for (struct list_elem *e = list_begin(active_files);
+        e != list_end(active_files); 
+        e = list_next(e)) 
+  {
+    f = list_entry(e, struct file_item, elem);
     if (fd == f->fd) {
       return f;
     }
@@ -172,38 +174,35 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_acquire(&f_lock);
       
       int fd = args[1];
-      if (fd == 0) { // stdin is read only
+      if (fd == STDIN_FILENO) { // stdin is read only
         f->eax = -1;
       }
       else {
         const char* buffer = (char*) args[2];
-        size_t size = (size_t) args[3];
         
         // Check args
-        if (!arg_check((char*) args[2])) {
+        if (!arg_check(buffer)) {
           terminate_user_process(f);
         }
 
-        if (fd == 1) { // stdout
-          putbuf(buffer, size);
-        } else {
-          
-        }
-        
-        size_t buffer_len = strlen((char *) buffer);
-
-        if (fd == STDOUT_FILENO) {
+        size_t size = (size_t) args[3];
+        size_t buffer_len = strlen(buffer);
+        if (fd == STDOUT_FILENO) { // stdout
           if (buffer_len > size) {
             putbuf(buffer, size);
+            f->eax = size;
           } else {
             putbuf(buffer, buffer_len);
+            f->eax = buffer_len;
           }
-        } else {
-          //struct process *pcb = thread_current()->pcb;
-          // get file from list of open files 
-          // off_t bytes_written = file_write(file, buffer, size);
+        } else { // user file
+          struct file_item* file = fd_to_file(fd);
+          if (file == NULL)
+            f->eax = -1;
+          else {
+            f->eax = file_write(file->infile, buffer, size);
+          }
         }
-        f->eax = size;
       }
       lock_release(&f_lock);
       break;
@@ -254,7 +253,18 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     
     case SYS_CLOSE:
 			; // verify args
-      // TODO
+      if (!arg_check((char*) args[1])) {
+        terminate_user_process(f);
+      }
+      struct file_item* f = fd_to_file(fd);
+      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+        terminate_user_process(f);
+      }
+      lock_acquire(&f_lock);
+      f->eax = file_close(infile);
+      list
+      free(f);
+      lock_release(&f_lock); 
       break;
 
     case SYS_EXIT:
