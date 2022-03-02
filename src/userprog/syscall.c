@@ -206,6 +206,10 @@ void remove_syscall(struct intr_frame *f, uint32_t* args) {
   lock_release(&f_lock);
 }
 
+void do_wait(struct intr_frame *f, uint32_t* args) {
+
+}
+
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
   check_valid_frame(f, args);
@@ -217,7 +221,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
    */
 
   // printf("System call number: %d\n", args[0]);
-
+  int fd;
   switch (args[0]) {
 
     case SYS_EXEC:
@@ -227,11 +231,15 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       
       // Return new process's PID, if cannot load return -1
       if (pid == TID_ERROR) {
-        return -1;
+        f->eax = -1; 
+      } else {
+        f->eax = pid; 
       }
-      return pid;
       break;
-      
+    
+    case SYS_HALT:
+      do_wait(f,args);
+
     case SYS_HALT:
       shutdown_power_off();
       break;
@@ -271,12 +279,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       if (!arg_check((char*) args[1])) {
         terminate_user_process(f);
       }
-      int fd = (int) args[1];
-      struct file_item* f = fd_to_file(fd);
+      fd = (int) args[1];
+      struct file_item* fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         terminate_user_process(f);
       }
-      struct file* infile = f->infile;
+      struct file* infile = fi->infile;
       lock_acquire(&f_lock);
       f->eax = file_length(infile);
       lock_release(&f_lock); 
@@ -287,12 +295,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       if (!arg_check((char*) args[1]) || !arg_check((char*) args[2])) {
         terminate_user_process(f);
       }
-      int fd = (int) args[1];
-      struct file_item* f = fd_to_file(fd);
+      fd = (int) args[1];
+      struct file_item* fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         terminate_user_process(f);
       }
-      struct file* infile = f->infile;
+      struct file* infile = fi->infile;
       lock_acquire(&f_lock);
       file_seek(infile, args[2]);
       lock_release(&f_lock); 
@@ -303,12 +311,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       if (!arg_check((char*) args[1])) {
         terminate_user_process(f);
       }
-      int fd = (int) args[1];
-      struct file_item* f = fd_to_file(fd);
+      fd = (int) args[1];
+      struct file_item* fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         terminate_user_process(f);
       }
-      struct file* infile = f->infile;
+      struct file* infile = fi->infile;
       lock_acquire(&f_lock);
       f->eax = file_tell(infile);
       lock_release(&f_lock); 
@@ -318,10 +326,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       if (!arg_check((char*) args[1])) {
         terminate_user_process(f);
       }
-      struct file_item* f = fd_to_file(fd);
+      struct file_item* fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         terminate_user_process(f);
       }
+      struct file* infile = fi->infile;
       lock_acquire(&f_lock);
       f->eax = file_close(infile);
       //TODO: remove the file_item from active_files
