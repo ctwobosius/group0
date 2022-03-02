@@ -19,6 +19,7 @@
 
 typedef struct intr_frame intr_frame_t;
 static void syscall_handler(intr_frame_t* f);
+static struct lock f_lock;
 
 // All of these are static functions are to avoid "no previous prototype for function"
 
@@ -202,7 +203,7 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
     check_valid_frame(f, (uint32_t*) &(buffer[i]), sizeof(char*) - 1, false);
   }
 
-  int fd = args[1];
+  int fd = (int) args[1];
 
   lock_acquire(&f_lock);
   if (fd == STDIN_FILENO) { // stdin is read only
@@ -238,15 +239,16 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
 
 static void remove_syscall(intr_frame_t* f, uint32_t* args) {
   terminate_if_invalid(f, (uint32_t*) args[1]);
-  char* f_name = args[1];
+  char* f_name = (char*) args[1];
   lock_acquire(&f_lock);
   f->eax = filesys_remove(f_name);
   lock_release(&f_lock);
 }
 
-static void do_wait(intr_frame_t* f, uint32_t* args) {
-
-}
+// static void do_wait(intr_frame_t* f, uint32_t* args) {
+//   f;
+//   args;
+// }
 
 static void syscall_handler(intr_frame_t* f) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -267,7 +269,7 @@ static void syscall_handler(intr_frame_t* f) {
     case SYS_EXEC:
 			; // verify args
       // Run executable whose name is in arg, pass given arguments
-      int pid = process_execute(args[1]);
+      int pid = process_execute((char*) args[1]);
       
       // Return new process's PID, if cannot load return -1
       if (pid == TID_ERROR) {
@@ -278,7 +280,8 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_WAIT:
-      do_wait(f,args);
+      // do_wait(f,args);
+      break;
 
     case SYS_HALT:
       shutdown_power_off();
@@ -317,7 +320,7 @@ static void syscall_handler(intr_frame_t* f) {
       check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       fd = (int) args[1];
       fi = fd_to_file(fd);
-      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         exit_sys(f, -1);
       }
       infile = fi->infile;
@@ -331,7 +334,7 @@ static void syscall_handler(intr_frame_t* f) {
       check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
       fd = (int) args[1];
       fi = fd_to_file(fd);
-      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         exit_sys(f, -1);
       }
       infile = fi->infile;
@@ -344,7 +347,7 @@ static void syscall_handler(intr_frame_t* f) {
 			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       fd = (int) args[1];
       fi = fd_to_file(fd);
-      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
         exit_sys(f, -1);
       }
       infile = fi->infile;
@@ -356,7 +359,7 @@ static void syscall_handler(intr_frame_t* f) {
 			// check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       // fd = (int) args[1];
       // fi = fd_to_file(fd);
-      // if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      // if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
       //   exit_sys(f, -1);
       // }
       // infile = fi->infile;
@@ -374,7 +377,7 @@ static void syscall_handler(intr_frame_t* f) {
     
     case SYS_PRACTICE:
 			check_valid_frame(f, args, sizeof(char*), false);
-      int i = args[1];
+      int i = (int) args[1];
       f->eax = i + 1;
       break;
   }
