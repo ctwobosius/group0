@@ -89,6 +89,8 @@ struct thread {
   uint8_t* stack;            /* Saved stack pointer. */
   int priority;              /* Priority. */
   struct list_elem allelem;  /* List element for all threads list. */
+  // struct thread* parent;  // for accessing shared data between parent/child
+  // bad aaron
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */

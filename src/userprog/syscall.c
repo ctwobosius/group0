@@ -39,35 +39,63 @@ static bool put_user (uint8_t *udst, uint8_t byte) {
   return error_code != -1;
 }
 
+// static struct child_data* init_shared_data() {
+//   struct child_data* shared_data = malloc(sizeof(struct child_data));
+//   sema_init(shared_data->sema);
+//   lock_init(shared_data->lock);
+//   shared_data->ref_cnt = 2;
+//   shared_data->waited = false;
+//   shared_data->exited = false;
+//   shared_data->loaded = false;
+//   shared_data->status = 0;
+//   list_init(shared_data);
+//   return shared_data;
+// }
+
 void syscall_init(void) { 
   lock_init(&f_lock);
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
 }
 
-static bool ptr_invalid(uint32_t* ptr) {
+static bool ptr_invalid(const void* ptr) {
   return 
     ptr == NULL || // null pointer
-    !(is_user_vaddr(ptr)) || // above PHYS_BASE, illegal pointer, section A.3
-    (pagedir_get_page(thread_current()->pcb->pagedir, ptr) == NULL) // unmapped mem
+    !is_user_vaddr(ptr) || // above PHYS_BASE, illegal pointer, section A.3
+    !pagedir_get_page(thread_current()->pcb->pagedir, ptr) // unmapped mem
   ;
 }
 
 static void exit_sys(intr_frame_t* f, int status)
 {
+  child_t* my_data = thread_current()->pcb->my_data;
+  my_data->exit_status = status;
+  lock_acquire(my_data->lock);
+  my_data->ref_cnt--;
+  lock_release(my_data->lock);
+  sema_up(my_data->sema);
+
+  if (my_data->ref_cnt == 0) {
+    free(my_data);
+  }
+
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   f->eax = status;
   process_exit();
 }
 
-static void terminate_if_invalid(intr_frame_t* f, uint32_t* ptr) {
-  if (ptr_invalid(ptr))
+static void check_ptr(const void* ptr, intr_frame_t* f) {
+  if (ptr_invalid(ptr) || ptr_invalid(ptr + 3)) {
     exit_sys(f, -1);
+  }
 }
 
+// static void terminate_if_invalid(intr_frame_t* f, uint32_t* ptr) {
+//   if (ptr_invalid(ptr))
+//     exit_sys(f, -1);
+// }
+
 static int next_fd(uint32_t* args UNUSED) {
-  int fd = thread_current()->pcb->next_fd;
-  thread_current()->pcb->next_fd += 1;
-  return fd;
+  return thread_current()->pcb->next_fd++;
 }
 
 static struct file_item* init_file(int fd, struct file* file, char* f_name) {
@@ -84,8 +112,10 @@ to ensure we don't read a bad byte both at the beginning and end*/
 static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_args, bool checking_read) {
   // we do - 1 because we don't want to check into the next word (last byte is right before next word)
   uint32_t* border = args + num_args - 1;
-  terminate_if_invalid(f, args);
-  terminate_if_invalid(f, border);
+  // terminate_if_invalid(f, args);
+  // terminate_if_invalid(f, border);
+  check_ptr(args, f);
+  check_ptr(border, f);
   
   // Check if memory on page boundary
   uint8_t* first_addr = (uint8_t*) args;
@@ -103,8 +133,8 @@ static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_args, 
 }
 
 static void do_open(intr_frame_t* f, uint32_t* args) {
-  check_valid_frame(f, args, sizeof(char*) + sizeof(char*), true);
-  terminate_if_invalid(f, (uint32_t*) args[1]);
+  // check_valid_frame(f, args, sizeof(char*) + sizeof(char*), true);
+  // terminate_if_invalid(f, (uint32_t*) args[1]);
   lock_acquire(&f_lock);
   struct file* file = filesys_open((char *) args[1]);
   if (file == NULL) {
@@ -112,7 +142,7 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
     f->eax = -1;
     return;
   }
-  int fd  = next_fd(args);
+  int fd = next_fd(args);
 
   // struct file_item* new_file = malloc(sizeof(struct file_item));
   // new_file->ref_cnt = 1;
@@ -150,8 +180,10 @@ static void do_read(intr_frame_t* f, uint32_t* args) {
   check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
   char* buf = (char*) args[2];
   size_t size = (size_t) args[3];
-  terminate_if_invalid(f, (uint32_t*) buf);
-  terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
+  // terminate_if_invalid(f, (uint32_t*) buf);
+  // terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
+  check_ptr(buf, f);
+  check_ptr(buf + size * sizeof(char*), f);
 
   // check characters in buf args[2]
   for (size_t i=0; i < strlen(buf); i++)
@@ -192,14 +224,16 @@ static void do_read(intr_frame_t* f, uint32_t* args) {
 }
 
 static void write_syscall(intr_frame_t* f, uint32_t* args) {
-  check_valid_frame(f, args, 
-      sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
+  // check_valid_frame(f, args, 
+  //     sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
   const char* buffer = (char*) args[2];
+  check_ptr(buffer, f);
 
   // check characters in buffer args[2]
   for (size_t i=0; i < strlen(buffer); i++)
   {
-    check_valid_frame(f, (uint32_t*) &(buffer[i]), sizeof(char*) - 1, false);
+    check_ptr(buffer + i, f); // buffer is char* type so buffer+1 actually adds 1
+    // check_valid_frame(f, (uint32_t*) &(buffer[i]), sizeof(char*) - 1, false);
   }
 
   int fd = (int) args[1];
@@ -210,7 +244,8 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
   }
   else {
     // Check args
-    terminate_if_invalid(f, (uint32_t*) buffer);
+    // terminate_if_invalid(f, (uint32_t*) buffer);
+    check_ptr(buffer, f);
 
     size_t size = (size_t) args[3];
     size_t buffer_len = strlen(buffer);
@@ -235,16 +270,13 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
 }
 
 static void remove_syscall(intr_frame_t* f, uint32_t* args) {
-  terminate_if_invalid(f, (uint32_t*) args[1]);
+  // terminate_if_invalid(f, (uint32_t*) args[1]);
+  check_ptr((void*) args[1], f);
   char* f_name = (char*) args[1];
   lock_acquire(&f_lock);
   f->eax = filesys_remove(f_name);
   lock_release(&f_lock);
 }
-
-// static void do_wait(intr_frame_t* f, uint32_t* args) {
-  // TODO: do me
-// }
 
 static void syscall_handler(intr_frame_t* f) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -264,21 +296,49 @@ static void syscall_handler(intr_frame_t* f) {
 
     case SYS_EXEC:
     // TODO: finish this skeleton for EXEC
-			; // verify args
+			check_ptr((void *) args[1], f); // verify args
+
       // Run executable whose name is in arg, pass given arguments
-      int pid = process_execute((char*) args[1]);
+      // struct child_data* child = init_shared_data();
+      tid_t tid = process_execute((char*) args[1]);
+      // shared_data->tid = tid;
+      // sema_up(thread_current()->pcb->tid_sema);
+
+      struct list* child_list = thread_current()->pcb->child_list;
+      bool found = false;
+      struct child_data* child;
+      for (struct list_elem *e = list_begin(child_list);
+               e != list_end(child_list);
+               e = list_next(e))
+      {
+         child = list_entry(e, child_t, elem);
+         if (child->tid == tid) {
+            found = true;
+            break;
+         }
+      }
+
+      if (!found) {
+        f->eax = -1;
+        break;
+      }
+
+      sema_down(child->sema);
+      bool loaded = child->loaded;
       
-      // Return new process's PID, if cannot load return -1
-      if (pid == TID_ERROR) {
-        f->eax = -1; 
+      // Return new process's TID, if cannot load return -1
+      if (tid == TID_ERROR || !loaded) {
+        list_remove(&child->elem);
+        f->eax = -1;
       } else {
-        f->eax = pid; 
+        // list_push_front(thread_current()->pcb->shared_data_list, shared_data->elem);
+        f->eax = tid;
       }
       break;
     
     case SYS_WAIT:
       // FILL IN DO WAIT
-      // do_wait(f,args);
+      f->eax = process_wait(args[1]);
       break;
 
     case SYS_HALT:
@@ -286,12 +346,12 @@ static void syscall_handler(intr_frame_t* f) {
       break;
 
   	case SYS_OPEN:
-			; // verify args
+			check_ptr((void*) args[1], f); // verify args
       do_open(f,args);
       break;
 
   	case SYS_READ:
-			; // verify args
+			check_ptr((void*) args[1], f); // verify args
       do_read(f, args);
       break;
 
@@ -302,7 +362,8 @@ static void syscall_handler(intr_frame_t* f) {
     case SYS_CREATE:
 			; // verify args
       // TODO: check if this is all good
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
+      // check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
+      check_ptr((void*) args[1], f);
       lock_acquire(&f_lock);
       f->eax = filesys_create((const char *)args[1], (off_t) args[2]);
       lock_release(&f_lock);
@@ -351,7 +412,8 @@ static void syscall_handler(intr_frame_t* f) {
       infile = fi->infile;
       lock_acquire(&f_lock);
       f->eax = file_tell(infile);
-      lock_release(&f_lock); 
+      lock_release(&f_lock);
+      break;
     
     case SYS_CLOSE:
     // TODO: finish CLOSE
@@ -363,9 +425,9 @@ static void syscall_handler(intr_frame_t* f) {
       }
       infile = fi->infile;
       lock_acquire(&f_lock);
-      f->eax = file_close(infile);
+      file_close(infile);
       //TODO: remove the file_item from active_files
-      free(f);
+      // free(f);
       lock_release(&f_lock); 
       break;
 

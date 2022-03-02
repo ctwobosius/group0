@@ -40,6 +40,9 @@ void userprog_init(void) {
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
 
+  t->pcb->child_list = malloc(sizeof(struct list));
+  list_init(t->pcb->child_list);
+
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
 }
@@ -68,6 +71,18 @@ pid_t process_execute(const char* fname_and_args) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+
+  if (thread_current()->pcb) {
+    child_t* new_child = malloc(sizeof(child_t));
+    new_child->ref_cnt = 2;
+    new_child->waited = false;
+    new_child->loaded = false;
+    new_child->tid = tid;
+    sema_init(new_child->sema, 0);
+    lock_init(new_child->lock);
+    list_push_front(thread_current()->pcb->child_list, &new_child->elem);
+  }
+
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   
@@ -93,10 +108,17 @@ static void start_process(void* fname_and_args) {
     new_pcb->pagedir = NULL;
     t->pcb = new_pcb;
 
-    // @Aaron Add initialize active_files
+    // @Aaron initialize list of active_files
     new_pcb->active_files = malloc(sizeof(struct list));
     list_init(new_pcb->active_files);
     new_pcb->next_fd = 3;
+
+    // @Aaron initialize child list
+    new_pcb->child_list = malloc(sizeof(struct list));
+    list_init(new_pcb->child_list);
+
+    // @Aaron initialize my_data (assuming I am a child process)
+    new_pcb->my_data = malloc(sizeof(child_t));
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
@@ -111,6 +133,28 @@ static void start_process(void* fname_and_args) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(fname_args, &if_.eip, &if_.esp);
   }
+
+  // get child/parent shared data structure to update with load success status
+  // sema_down(thread_current()->parent->pcb->tid_sema);
+  // struct list* shared_data_list = thread_current()->parent->pcb->shared_data_list;
+  // tid_t mytid = thread_tid();
+  // struct child_data* c;
+  // for (struct list_elem *e = list_begin(shared_data_list);
+  //         e != list_end(shared_data_list);
+  //         e = list_next(e))
+  // {
+  //   c = list_entry(e, struct file_item, elem);
+  //   if (c->tid == mytid) {
+  //     break;
+  //   }
+  // }
+
+  if (success) {
+    thread_current()->pcb->my_data->loaded = 1;
+  } else {
+    thread_current()->pcb->my_data->loaded = 0;
+  }
+  sema_up(thread_current()->pcb->my_data->sema);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -149,8 +193,36 @@ static void start_process(void* fname_and_args) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
-  return 0;
+  // sema_down(&temporary);
+  struct list* child_list = thread_current()->pcb->child_list;
+  bool found = false;
+  child_t* child;
+  for (struct list_elem *e = list_begin(child_list);
+          e != list_end(child_list);
+          e = list_next(e))
+  {
+    child = list_entry(e, child_t, elem);
+    if (child->tid == child_pid) {
+      found = true;
+      break;
+    }
+  }
+  
+  if (!found || child->waited) {
+    return -1;
+  }
+
+  child->waited = true;
+  sema_down(child->sema);
+  int exit_status = child->exit_status;
+  lock_acquire(child->lock);
+  child->ref_cnt--;
+  lock_release(child->lock);
+  if (child->ref_cnt == 0) {
+    free(child);
+  }
+  
+  return exit_status;
 }
 
 /* Free the current process's resources. */
