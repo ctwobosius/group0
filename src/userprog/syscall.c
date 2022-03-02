@@ -12,8 +12,8 @@
 #include "devices/input.h"
 #include <string.h>
 
-#define MAX_OPEN_FILES 128;
-#define EOF 0;
+#define MAX_OPEN_FILES 128
+#define EOF '\n'
 
 static void syscall_handler(struct intr_frame*);
 struct file_item* fd_to_file(int fd);
@@ -99,14 +99,15 @@ struct file_item* fd_to_file(int fd) {
 }
 
 
-
 // called from syscall_handler to actually do the reading
 void do_read(struct intr_frame *f, uint32_t* args) {
-  if (!arg_check((char*) args[2]) || 
-      !arg_check((char*) args[2] + (size_t)args[3] )) //check if end of buffer is valid
-      {
+  char* buf = (char*) args[2];
+  size_t size = (size_t) args[3];
+  if (!arg_check(buf) || !arg_check(buf + size)) //check if end of buffer is valid
+  {
     terminate_user_process(f);
   }
+
   int fd = (int) args[1];
   if (fd == STDOUT_FILENO) {
     //what is correct behavior?//TODO
@@ -115,15 +116,13 @@ void do_read(struct intr_frame *f, uint32_t* args) {
   }
   else if (fd == STDIN_FILENO) {
     //read from stdin until EOF or size is hit
-    int size = (int) args[3];
-    char* buf = (char*) args[2];
-    int i = 0;
-    for(i = 0; i < size; i ++) {
+    size_t i = 0;
+    for(; i < size; i++) {
       char c = input_getc();
-      // if (c == EOF) {
-      //   break;
-      // }
       buf[i] = c;
+      if (c == EOF) {
+        break;
+      }
     }
     f->eax = i;
     return;
@@ -140,6 +139,44 @@ void do_read(struct intr_frame *f, uint32_t* args) {
 	  lock_release (&f_lock);
   }
 }
+
+void write_syscall(struct intr_frame *f, uint32_t* args) {
+  lock_acquire(&f_lock);
+      
+  int fd = args[1];
+  if (fd == STDIN_FILENO) { // stdin is read only
+    f->eax = -1;
+  }
+  else {
+    const char* buffer = (char*) args[2];
+    
+    // Check args
+    if (!arg_check(buffer)) {
+      terminate_user_process(f);
+    }
+
+    size_t size = (size_t) args[3];
+    size_t buffer_len = strlen(buffer);
+    if (fd == STDOUT_FILENO) { // stdout
+      if (buffer_len > size) {
+        putbuf(buffer, size);
+        f->eax = size;
+      } else {
+        putbuf(buffer, buffer_len);
+        f->eax = buffer_len;
+      }
+    } else { // user file
+      struct file_item* file = fd_to_file(fd);
+      if (file == NULL)
+        f->eax = -1;
+      else {
+        f->eax = file_write(file->infile, buffer, size);
+      }
+    }
+  }
+  lock_release(&f_lock);
+}
+
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -171,40 +208,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
 
   	case SYS_WRITE:
-      lock_acquire(&f_lock);
-      
-      int fd = args[1];
-      if (fd == STDIN_FILENO) { // stdin is read only
-        f->eax = -1;
-      }
-      else {
-        const char* buffer = (char*) args[2];
-        
-        // Check args
-        if (!arg_check(buffer)) {
-          terminate_user_process(f);
-        }
-
-        size_t size = (size_t) args[3];
-        size_t buffer_len = strlen(buffer);
-        if (fd == STDOUT_FILENO) { // stdout
-          if (buffer_len > size) {
-            putbuf(buffer, size);
-            f->eax = size;
-          } else {
-            putbuf(buffer, buffer_len);
-            f->eax = buffer_len;
-          }
-        } else { // user file
-          struct file_item* file = fd_to_file(fd);
-          if (file == NULL)
-            f->eax = -1;
-          else {
-            f->eax = file_write(file->infile, buffer, size);
-          }
-        }
-      }
-      lock_release(&f_lock);
+      write_syscall(f, args);
       break;
     
     case SYS_CREATE:
@@ -225,7 +229,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     
     case SYS_FILESIZE:
 			; // verify args
-      // TODO
       if (!arg_check((char*) args[1])) {
         terminate_user_process(f);
       }
@@ -238,18 +241,38 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_acquire(&f_lock);
       f->eax = file_length(infile);
       lock_release(&f_lock); 
-
       break;
     
     case SYS_SEEK:
 			; // verify args
-      // TODO
+      if (!arg_check((char*) args[1]) || !arg_check((char*) args[2])) {
+        terminate_user_process(f);
+      }
+      int fd = (int) args[1];
+      struct file_item* f = fd_to_file(fd);
+      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+        terminate_user_process(f);
+      }
+      struct file* infile = f->infile;
+      lock_acquire(&f_lock);
+      file_seek(infile, args[2]);
+      lock_release(&f_lock); 
       break;
     
     case SYS_TELL:
 			; // verify args
-      // TODO
-      break;
+      if (!arg_check((char*) args[1])) {
+        terminate_user_process(f);
+      }
+      int fd = (int) args[1];
+      struct file_item* f = fd_to_file(fd);
+      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+        terminate_user_process(f);
+      }
+      struct file* infile = f->infile;
+      lock_acquire(&f_lock);
+      f->eax = file_tell(infile);
+      lock_release(&f_lock); 
     
     case SYS_CLOSE:
 			; // verify args
@@ -262,19 +285,25 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       lock_acquire(&f_lock);
       f->eax = file_close(infile);
-      list
+      //TODO: remove the file_item from active_files
       free(f);
       lock_release(&f_lock); 
       break;
 
     case SYS_EXIT:
 			; // verify args
+      if (!arg_check((char*) args[1])) {
+        terminate_user_process(f);
+      }
       f->eax = args[1];
       exit_syscall(args[1]);
       break;
     
     case SYS_PRACTICE:
 			; // verify args
+      if (!arg_check((char*) args[1])) {
+        terminate_user_process(f);
+      }
       int i = args[1];
       f->eax = i + 1;
       break;
