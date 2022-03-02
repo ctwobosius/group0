@@ -10,6 +10,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "devices/input.h"
+#include "devices/shutdown.h"
 #include <string.h>
 
 #define MAX_OPEN_FILES 128
@@ -29,15 +30,19 @@ void terminate_user_process(struct intr_frame *f) {
 }
 
 
+bool ptr_invalid(uint32_t* ptr) {
+  return 
+    ptr == NULL || // null pointer
+    !(is_user_vaddr(ptr)) || // illegal pointer, section A.3
+    (pagedir_get_page(thread_current()->pcb->pagedir, ptr) == NULL) // memory on page boundary
+  ; 
+}
+
 void check_valid_frame(struct intr_frame* f, uint32_t* args) {
   // TODO: actually make this not pseudocode
+  
   uint32_t* border = args + sizeof(uint32_t);
-  if (
-    args == NULL || // null pointer
-    !(is_user_vaddr(args)) || // illegal pointer, section A.3
-    (pagedir_get_page(thread_current()->pcb->pagedir, args) == NULL) ||//pagedir_get_page(the_page_of_f) || // invalid pointer
-    !(is_user_vaddr(border)) || (pagedir_get_page(thread_current()->pcb->pagedir, border)==NULL)//check_if_on_boundary(f) // memory lies on page boundary
-  ) {
+  if (ptr_invalid(args) || ptr_invalid(border)) {
     terminate_user_process(f);
   }
   return;
@@ -60,6 +65,15 @@ void exit_syscall(int status)
   process_exit();
 }
 
+struct file_item* init_file(int fd, struct file* file, char* f_name) {
+  struct file_item* new_file = malloc(sizeof(struct file_item));
+  new_file->ref_cnt = 1;
+  new_file->fd = fd;
+  new_file->infile = file;
+  new_file->name = f_name;
+  return new_file;
+}
+
 void do_open(struct intr_frame *f, uint32_t* args) {
   if (!arg_check((char*) args[0])) {
     terminate_user_process(f);
@@ -72,11 +86,16 @@ void do_open(struct intr_frame *f, uint32_t* args) {
     return;
   }
   int fd  = next_fd(args);
-  struct file_item* new_file = malloc(sizeof(struct file_item));
-  new_file->ref_cnt = 1;
-  new_file->fd = fd;
-  new_file->infile = file;
-  new_file->name = (char *) args[1];
+
+  // struct file_item* new_file = malloc(sizeof(struct file_item));
+  // new_file->ref_cnt = 1;
+  // new_file->fd = fd;
+  // new_file->infile = file;
+  // new_file->name = (char *) args[1];
+
+  // may want to put that in init_file incase we need to create files again, eg:
+  struct file_item* new_file = init_file(fd, file, (char*) args[1]);
+
   list_push_front(thread_current()->pcb->active_files, &new_file->elem);
   lock_release(&f_lock);
   f->eax = fd;
@@ -177,6 +196,15 @@ void write_syscall(struct intr_frame *f, uint32_t* args) {
   lock_release(&f_lock);
 }
 
+void remove_syscall(struct intr_frame *f, uint32_t* args) {
+  if (!arg_check((char*) args[1])) {
+    terminate_user_process(f);
+  }
+  char* f_name = args[1];
+  lock_acquire(&f_lock);
+  f->eax = filesys_remove(f_name);
+  lock_release(&f_lock);
+}
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -194,7 +222,18 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
     case SYS_EXEC:
 			; // verify args
-      // TODO
+      // Run executable whose name is in arg, pass given arguments
+      int pid = process_execute(args[1]);
+      
+      // Return new process's PID, if cannot load return -1
+      if (pid == TID_ERROR) {
+        return -1;
+      }
+      return pid;
+      break;
+      
+    case SYS_HALT:
+      shutdown_power_off();
       break;
 
   	case SYS_OPEN:
@@ -214,17 +253,17 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_CREATE:
 			; // verify args
       // TODO
+      if (!arg_check((char*) args[1]) || !arg_check((char*) args[2])) {
+        terminate_user_process(f);
+      }
+      lock_acquire(&f_lock);
+      f->eax = filesys_create((const char *)args[1], (off_t) args[2]);
+      lock_release(&f_lock);
       break;
     
     case SYS_REMOVE:
 			; // verify args
-      if (!arg_check((char*) args[1])) {
-        terminate_user_process(f);
-      }
-      char* f_name = args[1];
-      lock_acquire(&f_lock);
-      f->eax = filesys_remove(f_name);
-      lock_release(&f_lock);
+      remove_syscall(f, args);
       break;
     
     case SYS_FILESIZE:
