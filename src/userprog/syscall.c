@@ -19,38 +19,38 @@
 static void syscall_handler(struct intr_frame*);
 struct file_item* fd_to_file(int fd);
 
+// From section A.3 of the spec
+/* Reads a byte at user virtual address UADDR. UADDR must be below PHYS_BASE.
+Returns the byte value if successful, -1 if a segfault occurred. */
+static int get_user (const uint8_t *uaddr) {
+int result;
+asm ("movl $1f, %0; movzbl %1, %0; 1:" : "=&a" (result) : "m" (*uaddr));
+return result;
+}
+/* Writes BYTE to user address UDST. UDST must be below PHYS_BASE. Returns
+true if successful, false if a segfault occurred. */
+static bool put_user (uint8_t *udst, uint8_t byte) {
+int error_code;
+asm ("movl $1f, %0; movb %b2, %1; 1:" : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+return error_code != -1;
+}
+
 void syscall_init(void) { 
   lock_init(&f_lock);
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
 }
 
-void terminate_user_process(struct intr_frame *f) {
-  f->eax = -1;
-  exit_syscall(-1);
-}
-
-
 bool ptr_invalid(uint32_t* ptr) {
   return 
     ptr == NULL || // null pointer
-    !(is_user_vaddr(ptr)) || // illegal pointer, section A.3
-    (pagedir_get_page(thread_current()->pcb->pagedir, ptr) == NULL) // memory on page boundary
-  ; 
+    !(is_user_vaddr(ptr)) || // above PHYS_BASE, illegal pointer, section A.3
+    (pagedir_get_page(thread_current()->pcb->pagedir, ptr) == NULL) // unmapped mem
+  ;
 }
 
-void check_valid_frame(struct intr_frame* f, uint32_t* args) {
-  // TODO: actually make this not pseudocode
-  
-  uint32_t* border = args + sizeof(uint32_t);
-  if (ptr_invalid(args) || ptr_invalid(border)) {
-    terminate_user_process(f);
-  }
-  return;
-}
-
-// returns if an arg is valid
-bool arg_check (char* arg) {
-  return arg != NULL && is_user_vaddr(arg) && (pagedir_get_page(thread_current()->pcb->pagedir, arg) != NULL);
+void terminate_if_invalid(struct intr_frame* f, uint32_t* ptr) {
+  if (ptr_invalid(ptr))
+    exit_syscall(f, -1);
 }
 
 int next_fd(uint32_t* args UNUSED) {
@@ -59,9 +59,10 @@ int next_fd(uint32_t* args UNUSED) {
   return fd;
 }
 
-void exit_syscall(int status)
+void exit_syscall(struct intr_frame *f, int status)
 {
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
+  f->eax = status;
   process_exit();
 }
 
@@ -74,10 +75,33 @@ struct file_item* init_file(int fd, struct file* file, char* f_name) {
   return new_file;
 }
 
-void do_open(struct intr_frame *f, uint32_t* args) {
-  if (!arg_check((char*) args[0])) {
-    terminate_user_process(f);
+/* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARGS 
+to ensure we don't read a bad byte both at the beginning and end*/
+void check_valid_frame(struct intr_frame* f, uint32_t* args, size_t num_args, bool checking_read) {
+  // TODO: actually make this not pseudocode
+  // we do - 1 because we don't want to check into the next word (last byte is right before next word)
+  uint32_t* border = args + num_args - 1;
+  terminate_if_invalid(f, args);
+  terminate_if_invalid(f, border);
+  
+  // Check if memory on page boundary
+  uint8_t first_addr = (uint8_t*) args;
+  uint8_t last_addr = (uint8_t*) border;
+  int first_byte = get_user(first_addr);
+  int last_byte = get_user(last_addr);
+  bool could_not_read = first_byte == -1 || last_byte == -1;
+  // check read permissions
+  if (checking_read && could_not_read) {
+    exit_syscall(f, -1);
+  } else if (!put_user(first_addr, first_byte) || !put_user(last_addr, last_byte)) {
+    // unsuccessful write permissions
+    exit_syscall(f, -1);
   }
+}
+
+void do_open(struct intr_frame *f, uint32_t* args) {
+  check_valid_frame(f, args, sizeof(char*) + sizeof(char*), true);
+  terminate_if_invalid(f, (char*) args[1]);
   lock_acquire(&f_lock);
   struct file* file = filesys_open((char *) args[1]);
   if (file == NULL) {
@@ -120,11 +144,16 @@ struct file_item* fd_to_file(int fd) {
 
 // called from syscall_handler to actually do the reading
 void do_read(struct intr_frame *f, uint32_t* args) {
+  check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
   char* buf = (char*) args[2];
   size_t size = (size_t) args[3];
-  if (!arg_check(buf) || !arg_check(buf + size)) //check if end of buffer is valid
+  terminate_if_invalid(f, buf);
+  terminate_if_invalid(f, buf + size); //check if end of buffer is valid
+
+  // check characters in buf args[2]
+  for (size_t i=0; i < strlen(buf); i++)
   {
-    terminate_user_process(f);
+    check_valid_frame(f, &(buf[i]), sizeof(char*) - 1, false);
   }
 
   int fd = (int) args[1];
@@ -160,19 +189,27 @@ void do_read(struct intr_frame *f, uint32_t* args) {
 }
 
 void write_syscall(struct intr_frame *f, uint32_t* args) {
-  lock_acquire(&f_lock);
-      
+  check_valid_frame(f, args, 
+      sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
+  const char* buffer = (char*) args[2];
+
+  // check characters in buffer args[2]
+  for (size_t i=0; i < strlen(buffer); i++)
+  {
+    check_valid_frame(f, &(buffer[i]), sizeof(char*) - 1, false);
+  }
+
   int fd = args[1];
+
+  lock_acquire(&f_lock);
   if (fd == STDIN_FILENO) { // stdin is read only
     f->eax = -1;
   }
   else {
-    const char* buffer = (char*) args[2];
+    
     
     // Check args
-    if (!arg_check(buffer)) {
-      terminate_user_process(f);
-    }
+    terminate_if_invalid(f, buffer);
 
     size_t size = (size_t) args[3];
     size_t buffer_len = strlen(buffer);
@@ -197,9 +234,7 @@ void write_syscall(struct intr_frame *f, uint32_t* args) {
 }
 
 void remove_syscall(struct intr_frame *f, uint32_t* args) {
-  if (!arg_check((char*) args[1])) {
-    terminate_user_process(f);
-  }
+  terminate_if_invalid(f, (char*) args[1]);
   char* f_name = args[1];
   lock_acquire(&f_lock);
   f->eax = filesys_remove(f_name);
@@ -212,7 +247,7 @@ void do_wait(struct intr_frame *f, uint32_t* args) {
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
-  check_valid_frame(f, args);
+  check_valid_frame(f, args, sizeof(char*), false);
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -222,6 +257,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   // printf("System call number: %d\n", args[0]);
   int fd;
+  struct file* infile;
+  struct file_item* fi;
   switch (args[0]) {
 
     case SYS_EXEC:
@@ -237,7 +274,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       break;
     
-    case SYS_HALT:
+    case SYS_WAIT:
       do_wait(f,args);
 
     case SYS_HALT:
@@ -261,9 +298,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_CREATE:
 			; // verify args
       // TODO
-      if (!arg_check((char*) args[1]) || !arg_check((char*) args[2])) {
-        terminate_user_process(f);
-      }
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
       lock_acquire(&f_lock);
       f->eax = filesys_create((const char *)args[1], (off_t) args[2]);
       lock_release(&f_lock);
@@ -276,15 +311,13 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     
     case SYS_FILESIZE:
 			; // verify args
-      if (!arg_check((char*) args[1])) {
-        terminate_user_process(f);
-      }
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       fd = (int) args[1];
-      struct file_item* fi = fd_to_file(fd);
+      fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
-        terminate_user_process(f);
+        exit_syscall(f, -1);
       }
-      struct file* infile = fi->infile;
+      infile = fi->infile;
       lock_acquire(&f_lock);
       f->eax = file_length(infile);
       lock_release(&f_lock); 
@@ -292,66 +325,52 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     
     case SYS_SEEK:
 			; // verify args
-      if (!arg_check((char*) args[1]) || !arg_check((char*) args[2])) {
-        terminate_user_process(f);
-      }
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
       fd = (int) args[1];
-      struct file_item* fi = fd_to_file(fd);
+      fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
-        terminate_user_process(f);
+        exit_syscall(f, -1);
       }
-      struct file* infile = fi->infile;
+      infile = fi->infile;
       lock_acquire(&f_lock);
       file_seek(infile, args[2]);
       lock_release(&f_lock); 
       break;
     
     case SYS_TELL:
-			; // verify args
-      if (!arg_check((char*) args[1])) {
-        terminate_user_process(f);
-      }
+			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       fd = (int) args[1];
-      struct file_item* fi = fd_to_file(fd);
+      fi = fd_to_file(fd);
       if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
-        terminate_user_process(f);
+        exit_syscall(f, -1);
       }
-      struct file* infile = fi->infile;
+      infile = fi->infile;
       lock_acquire(&f_lock);
       f->eax = file_tell(infile);
       lock_release(&f_lock); 
     
     case SYS_CLOSE:
-			; // verify args
-      if (!arg_check((char*) args[1])) {
-        terminate_user_process(f);
-      }
-      struct file_item* fi = fd_to_file(fd);
-      if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
-        terminate_user_process(f);
-      }
-      struct file* infile = fi->infile;
-      lock_acquire(&f_lock);
-      f->eax = file_close(infile);
-      //TODO: remove the file_item from active_files
-      free(f);
-      lock_release(&f_lock); 
+			// check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      // fd = (int) args[1];
+      // fi = fd_to_file(fd);
+      // if (fd == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      //   exit_syscall(f, -1);
+      // }
+      // infile = fi->infile;
+      // lock_acquire(&f_lock);
+      // f->eax = file_close(infile);
+      // //TODO: remove the file_item from active_files
+      // free(f);
+      // lock_release(&f_lock); 
       break;
 
     case SYS_EXIT:
-			; // verify args
-      if (!arg_check((char*) args[1])) {
-        terminate_user_process(f);
-      }
-      f->eax = args[1];
-      exit_syscall(args[1]);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      exit_syscall(f, args[1]);
       break;
     
     case SYS_PRACTICE:
-			; // verify args
-      if (!arg_check((char*) args[1])) {
-        terminate_user_process(f);
-      }
+			check_valid_frame(f, args, sizeof(char*), false);
       int i = args[1];
       f->eax = i + 1;
       break;
