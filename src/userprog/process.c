@@ -65,8 +65,10 @@ pid_t process_execute(const char* fname_and_args) {
   /* Aaron's addition: get filename for filesys_open */
   char fn_copy2[strlen(fname_and_args) + 1];
   strlcpy(fn_copy2, fname_and_args, strlen(fname_and_args) + 1);
+
   char* save_ptr;
   char* file_name = strtok_r(fn_copy2, " ", &save_ptr);
+
 
 // AAron
   child_t* new_child = NULL;
@@ -83,9 +85,11 @@ pid_t process_execute(const char* fname_and_args) {
     new_child->ref_cnt = 2;
     new_child->loaded = false;
     new_child->fname_and_args = fn_copy;
+    new_child->exit_status = -1;
     sema_init(&new_child->load_sema, 0);
     sema_init(&new_child->wait_sema, 0);
     lock_init(&new_child->ref_cnt_lock);
+    
     list_push_front(&thread_current()->pcb->child_list, &new_child->elem);
   }
   // Calvin
@@ -95,10 +99,13 @@ pid_t process_execute(const char* fname_and_args) {
 
   if (tid == TID_ERROR){
     palloc_free_page(fn_copy);
-    return TID_ERROR;
+    return TID_ERROR;   // TID_ERROR == -1
   }
 
   new_child->tid = tid;
+  sema_down(&new_child->load_sema);
+  if (!new_child->loaded)
+    return -1;
   return tid;
 }
 

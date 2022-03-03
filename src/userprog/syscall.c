@@ -317,43 +317,45 @@ static void syscall_handler(intr_frame_t* f) {
   switch (args[0]) {
 
     case SYS_EXEC:
-    // TODO: finish this skeleton for EXEC
       check_valid_frame(f, args, sizeof(char*) + sizeof(char*), false);
 			check_ptr((void *) args[1], f); // verify args
 
       // Run executable whose name is in arg, pass given arguments
-      tid_t tid = process_execute((char*) args[1]);
-      // printf("\nsad pid: %d\n", (int) tid);
+      pid_t pid = process_execute((char*) args[1]);
+      // TID_ERROR is -1, so if fails, fine to return pid     
+      f->eax = pid;
 
-      struct list child_list = thread_current()->pcb->child_list;
-      bool found = false;
-      struct child_data* child;
-      for (struct list_elem *e = list_begin(&child_list);
-               e != list_end(&child_list);
-               e = list_next(e))
-      {
-         child = list_entry(e, child_t, elem);
-         if (child->tid == tid) {
-            found = true;
-            break;
-         }
-      }
+      // NOT IN PROCESS EXEC
+      // struct list child_list = thread_current()->pcb->child_list;
+      // bool found = false;
+      // struct child_data* child;
+      // for (struct list_elem *e = list_begin(&child_list);
+      //          e != list_end(&child_list);
+      //          e = list_next(e))
+      // {
+      //    child = list_entry(e, child_t, elem);
+      //    if (child->tid == pid) {
+      //       found = true;
+      //       break;
+      //    }
+      // }
 
-      if (!found) {
-        f->eax = -1;
-        break;
-      }
+      // if (!found) {
+      //   f->eax = -1;
+      //   break;
+      // }
+       // NOT IN PROCESS EXEC
 
-      sema_down(&child->load_sema);   // wait for child to set loaded
-      bool loaded = child->loaded;
+      // sema_down(&child->load_sema);   // wait for child to set loaded
+      // bool loaded = child->loaded;
       
-      // Return new process's TID, if cannot load return -1
-      if (tid == TID_ERROR || !loaded) {
-        list_remove(&child->elem);
-        f->eax = -1;
-      } else {
-        f->eax = tid;
-      }
+      // // Return new process's TID, if cannot load return -1
+      // if (pid == TID_ERROR || !loaded) {
+      //   list_remove(&child->elem); // NOT IN PROCESS EXEC
+      //   f->eax = -1;
+      // } else {
+      //   f->eax = pid;
+      // }
       break;
     
     case SYS_WAIT:
