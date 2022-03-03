@@ -40,8 +40,9 @@ void userprog_init(void) {
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
 
-  t->pcb->child_list = malloc(sizeof(struct list));
-  list_init(t->pcb->child_list);
+  // @Aaron
+  // t->pcb->child_list = malloc(sizeof(struct list));
+  list_init(&t->pcb->child_list);
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -69,30 +70,50 @@ pid_t process_execute(const char* fname_and_args) {
   char* save_ptr;
   char* file_name = strtok_r(fn_copy2, " ", &save_ptr);
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
-
+// AAron
+  child_t* new_child = NULL;
   if (thread_current()->pcb) {
-    child_t* new_child = malloc(sizeof(child_t));
+    new_child = malloc(sizeof(child_t));
+  }
+  // aaron
+
+  // Calvin
+  if (!new_child){
+    palloc_free_page(fn_copy);
+    return TID_ERROR;
+  } 
+  else {
     new_child->ref_cnt = 2;
     new_child->waited = false;
-    new_child->loaded = false;
-    new_child->tid = tid;
-    sema_init(new_child->sema, 0);
-    lock_init(new_child->lock);
-    list_push_front(thread_current()->pcb->child_list, &new_child->elem);
+    new_child->loaded = false; //  replace
+    new_child->fname_and_args = fname_and_args;
+    
+    sema_init(&new_child->sema, 0);
+    lock_init(&new_child->ref_cnt_lock);
+    list_push_front(&thread_current()->pcb->child_list, &new_child->elem);
   }
+  // Calvin
 
-  if (tid == TID_ERROR)
+  /* Create a new thread to execute FILE_NAME. */
+  // tid = thread_create(file_name, PRI_DEFAULT, start_process, new_child);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+
+  if (tid == TID_ERROR){
     palloc_free_page(fn_copy);
-  
+    return TID_ERROR;
+  } 
+
+  // new_child->loaded = true;  //  replace
+  // new_child->tid = tid;
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* fname_and_args) {
-  char* fname_args = (char*) fname_and_args;
+static void start_process(void* new_child) {
+  // child_t* child = (child_t*) new_child;
+  // char* fname_args = child->fname_and_args;
+  char* fname_args = (char*) new_child;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -109,16 +130,15 @@ static void start_process(void* fname_and_args) {
     t->pcb = new_pcb;
 
     // @Aaron initialize list of active_files
-    new_pcb->active_files = malloc(sizeof(struct list));
-    list_init(new_pcb->active_files);
+    // new_pcb->active_files = malloc(sizeof(struct list));
+    list_init(&new_pcb->active_files);
     new_pcb->next_fd = 3;
 
     // @Aaron initialize child list
-    new_pcb->child_list = malloc(sizeof(struct list));
-    list_init(new_pcb->child_list);
+    list_init(&new_pcb->child_list);
 
     // @Aaron initialize my_data (assuming I am a child process)
-    new_pcb->my_data = malloc(sizeof(child_t));
+    // new_pcb->my_data = child;
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
@@ -134,13 +154,13 @@ static void start_process(void* fname_and_args) {
     success = load(fname_args, &if_.eip, &if_.esp);
   }
 
-  // get child/parent shared data structure to update with load success status
-  if (success) {
-    thread_current()->pcb->my_data->loaded = 1;
-  } else {
-    thread_current()->pcb->my_data->loaded = 0;
-  }
-  sema_up(thread_current()->pcb->my_data->sema);
+  // aaron get child/parent shared data structure to update with load success status
+  // if (success) {
+  //   thread_current()->pcb->my_data->loaded = 1;
+  // } else {
+  //   thread_current()->pcb->my_data->loaded = 0;
+  // }
+  // sema_up(thread_current()->pcb->my_data->sema);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -180,11 +200,12 @@ static void start_process(void* fname_and_args) {
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
   // sema_down(&temporary);
-  struct list* child_list = thread_current()->pcb->child_list;
+  // return 0;
+  struct list child_list = thread_current()->pcb->child_list;
   bool found = false;
   child_t* child;
-  for (struct list_elem *e = list_begin(child_list);
-          e != list_end(child_list);
+  for (struct list_elem *e = list_begin(&child_list);
+          e != list_end(&child_list);
           e = list_next(e))
   {
     child = list_entry(e, child_t, elem);
@@ -199,11 +220,11 @@ int process_wait(pid_t child_pid UNUSED) {
   }
 
   child->waited = true;
-  sema_down(child->sema);
+  sema_down(&child->sema);    // this is the "wait" part
   int exit_status = child->exit_status;
-  lock_acquire(child->lock);
+  lock_acquire(&child->ref_cnt_lock);
   child->ref_cnt--;
-  lock_release(child->lock);
+  lock_release(&child->ref_cnt_lock);
   if (child->ref_cnt == 0) {
     free(child);
   }

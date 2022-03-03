@@ -57,7 +57,7 @@ void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
 }
 
-static bool ptr_invalid(const void* ptr) {
+static bool ptr_invalid(const uint32_t* ptr) {
   return 
     ptr == NULL || // null pointer
     !is_user_vaddr(ptr) || // above PHYS_BASE, illegal pointer, section A.3
@@ -67,16 +67,16 @@ static bool ptr_invalid(const void* ptr) {
 
 static void exit_sys(intr_frame_t* f, int status)
 {
-  child_t* my_data = thread_current()->pcb->my_data;
-  my_data->exit_status = status;
-  lock_acquire(my_data->lock);
-  my_data->ref_cnt--;
-  lock_release(my_data->lock);
-  sema_up(my_data->sema);
+  // child_t* my_data = thread_current()->pcb->my_data;
+  // my_data->exit_status = status;
+  // lock_acquire(my_data->ref_cnt_lock);
+  // my_data->ref_cnt--;
+  // lock_release(my_data->ref_cnt_lock);
+  // sema_up(my_data->sema);
 
-  if (my_data->ref_cnt == 0) {
-    free(my_data);
-  }
+  // if (my_data->ref_cnt == 0) {
+  //   free(my_data);
+  // }
 
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   f->eax = status;
@@ -89,13 +89,15 @@ static void check_ptr(const void* ptr, intr_frame_t* f) {
   }
 }
 
-// static void terminate_if_invalid(intr_frame_t* f, uint32_t* ptr) {
-//   if (ptr_invalid(ptr))
-//     exit_sys(f, -1);
-// }
+static void terminate_if_invalid(intr_frame_t* f, uint32_t* ptr) {
+  if (ptr_invalid(ptr))
+    exit_sys(f, -1);
+}
 
 static int next_fd(uint32_t* args UNUSED) {
-  return thread_current()->pcb->next_fd++;
+  int fd = thread_current()->pcb->next_fd;
+  thread_current()->pcb->next_fd += 1;
+  return fd; // fix to have next_fd recalculate
 }
 
 static struct file_item* init_file(int fd, struct file* file, char* f_name) {
@@ -107,33 +109,36 @@ static struct file_item* init_file(int fd, struct file* file, char* f_name) {
   return new_file;
 }
 
-/* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARGS 
+/* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARG_BYTES 
 to ensure we don't read a bad byte both at the beginning and end*/
-static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_args, bool checking_read) {
+static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_arg_bytes, bool checking_read) {
   // we do - 1 because we don't want to check into the next word (last byte is right before next word)
-  uint32_t* border = args + num_args - 1;
+  uint32_t* border = args + num_arg_bytes - 4;
   // terminate_if_invalid(f, args);
   // terminate_if_invalid(f, border);
   check_ptr(args, f);
   check_ptr(border, f);
   
-  // Check if memory on page boundary
-  uint8_t* first_addr = (uint8_t*) args;
-  uint8_t* last_addr = (uint8_t*) border;
-  int first_byte = get_user(first_addr);
-  int last_byte = get_user(last_addr);
-  bool could_not_read = first_byte == -1 || last_byte == -1;
-  // check read permissions
-  if (checking_read && could_not_read) {
-    exit_sys(f, -1);
-  } else if (!put_user(first_addr, first_byte) || !put_user(last_addr, last_byte)) {
-    // unsuccessful write permissions
-    exit_sys(f, -1);
-  }
+  // // Check if memory on page boundary
+  // uint8_t* first_addr = (uint8_t*) args;
+  // uint8_t* last_addr = (uint8_t*) border; // should work since little endian
+  // int first_byte = get_user(first_addr);
+  // int last_byte = get_user(last_addr);
+  // bool could_not_read = first_byte == -1 || last_byte == -1;
+  // // check read permissions
+  // if (checking_read && could_not_read) {
+  //   exit_sys(f, -1);
+  // }
+  // else if (!checking_read &&
+  //           (!put_user(first_addr, first_byte)) //|| !put_user(last_addr, last_byte))
+  //         ) {
+  //   // unsuccessful write permissions
+  //   exit_sys(f, -1);
+  // }
 }
 
 static void do_open(intr_frame_t* f, uint32_t* args) {
-  // check_valid_frame(f, args, sizeof(char*) + sizeof(char*), true);
+  check_valid_frame(f, args, sizeof(char*) + sizeof(char*), true);
   // terminate_if_invalid(f, (uint32_t*) args[1]);
   lock_acquire(&f_lock);
   struct file* file = filesys_open((char *) args[1]);
@@ -153,7 +158,7 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
   // may want to put that in init_file incase we need to create files again, eg:
   struct file_item* new_file = init_file(fd, file, (char*) args[1]);
 
-  list_push_front(thread_current()->pcb->active_files, &new_file->elem);
+  list_push_front(&thread_current()->pcb->active_files, &new_file->elem);
   lock_release(&f_lock);
   f->eax = fd;
 }
@@ -161,9 +166,9 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
 
 static struct file_item* fd_to_file(int fd) {
   struct file_item* f;
-  struct list* active_files = thread_current()->pcb->active_files;
-  for (struct list_elem *e = list_begin(active_files);
-        e != list_end(active_files); 
+  struct list active_files = thread_current()->pcb->active_files;
+  for (struct list_elem *e = list_begin(&active_files);
+        e != list_end(&active_files); 
         e = list_next(e)) 
   {
     f = list_entry(e, struct file_item, elem);
@@ -180,12 +185,13 @@ static void do_read(intr_frame_t* f, uint32_t* args) {
   check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
   char* buf = (char*) args[2];
   size_t size = (size_t) args[3];
-  // terminate_if_invalid(f, (uint32_t*) buf);
-  // terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
-  check_ptr(buf, f);
-  check_ptr(buf + size * sizeof(char*), f);
+  terminate_if_invalid(f, (uint32_t*) buf);
+  terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
+  // check_ptr(buf, f);
+  // check_ptr(buf + size * sizeof(char*), f);
 
   // check characters in buf args[2]
+  check_valid_frame(f, (uint32_t*) &(buf[0]), sizeof(char*) - 1, false);
   for (size_t i=0; i < strlen(buf); i++)
   {
     check_valid_frame(f, (uint32_t*) &(buf[i]), sizeof(char*) - 1, false);
@@ -211,7 +217,7 @@ static void do_read(intr_frame_t* f, uint32_t* args) {
     return;
   }
   struct file_item* fi = fd_to_file(fd);
-  if (f == NULL) {
+  if (fi == NULL) {
     //file does not exist, so fail
     f->eax = -1;
   }
@@ -224,12 +230,10 @@ static void do_read(intr_frame_t* f, uint32_t* args) {
 }
 
 static void write_syscall(intr_frame_t* f, uint32_t* args) {
-  // check_valid_frame(f, args, 
-  //     sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
   const char* buffer = (char*) args[2];
-  check_ptr(buffer, f);
 
   // check characters in buffer args[2]
+  // check_valid_frame(f, (uint32_t*) &(buffer[0]), sizeof(char*) - 1, false);
   for (size_t i=0; i < strlen(buffer); i++)
   {
     check_ptr(buffer + i, f); // buffer is char* type so buffer+1 actually adds 1
@@ -244,7 +248,6 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
   }
   else {
     // Check args
-    // terminate_if_invalid(f, (uint32_t*) buffer);
     check_ptr(buffer, f);
 
     size_t size = (size_t) args[3];
@@ -270,7 +273,6 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
 }
 
 static void remove_syscall(intr_frame_t* f, uint32_t* args) {
-  // terminate_if_invalid(f, (uint32_t*) args[1]);
   check_ptr((void*) args[1], f);
   char* f_name = (char*) args[1];
   lock_acquire(&f_lock);
@@ -296,23 +298,21 @@ static void syscall_handler(intr_frame_t* f) {
 
     case SYS_EXEC:
     // TODO: finish this skeleton for EXEC
+      check_valid_frame(f, args, sizeof(char*) + sizeof(char*), false);
 			check_ptr((void *) args[1], f); // verify args
 
       // Run executable whose name is in arg, pass given arguments
-      // struct child_data* child = init_shared_data();
-      tid_t tid = process_execute((char*) args[1]);
-      // shared_data->tid = tid;
-      // sema_up(thread_current()->pcb->tid_sema);
+      pid_t pid = process_execute((char*) args[1]);
 
-      struct list* child_list = thread_current()->pcb->child_list;
+      struct list child_list = thread_current()->pcb->child_list;
       bool found = false;
       struct child_data* child;
-      for (struct list_elem *e = list_begin(child_list);
-               e != list_end(child_list);
+      for (struct list_elem *e = list_begin(&child_list);
+               e != list_end(&child_list);
                e = list_next(e))
       {
          child = list_entry(e, child_t, elem);
-         if (child->tid == tid) {
+         if (child->tid == pid) {
             found = true;
             break;
          }
@@ -323,21 +323,19 @@ static void syscall_handler(intr_frame_t* f) {
         break;
       }
 
-      sema_down(child->sema);
+      sema_down(&child->sema);   // wait for child to set loaded
       bool loaded = child->loaded;
       
       // Return new process's TID, if cannot load return -1
-      if (tid == TID_ERROR || !loaded) {
+      if (pid == TID_ERROR || !loaded) {
         list_remove(&child->elem);
         f->eax = -1;
       } else {
-        // list_push_front(thread_current()->pcb->shared_data_list, shared_data->elem);
-        f->eax = tid;
+        f->eax = pid;
       }
       break;
     
     case SYS_WAIT:
-      // FILL IN DO WAIT
       f->eax = process_wait(args[1]);
       break;
 
@@ -356,14 +354,19 @@ static void syscall_handler(intr_frame_t* f) {
       break;
 
   	case SYS_WRITE:
+      check_valid_frame(f, args, 
+        sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
+      check_ptr((void*) args[2], f); // verify args
       write_syscall(f, args);
       break;
     
     case SYS_CREATE:
 			; // verify args
       // TODO: check if this is all good
-      // check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
-      check_ptr((void*) args[1], f);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
+      if ((char*) args[1] == NULL || ptr_invalid((uint32_t*) args[1])) {
+          exit_sys(f, -1);
+      }
       lock_acquire(&f_lock);
       f->eax = filesys_create((const char *)args[1], (off_t) args[2]);
       lock_release(&f_lock);
@@ -416,18 +419,28 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_CLOSE:
-    // TODO: finish CLOSE
 			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       fd = (int) args[1];
       fi = fd_to_file(fd);
-      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      if (fi == NULL) { 
         exit_sys(f, -1);
       }
       infile = fi->infile;
       lock_acquire(&f_lock);
       file_close(infile);
       //TODO: remove the file_item from active_files
-      // free(f);
+      struct file_item* f_i;
+      struct list active_files = thread_current()->pcb->active_files;
+      for (struct list_elem *e = list_begin(&active_files);
+            e != list_end(&active_files); 
+            e = list_next(e)) 
+      {
+        f_i = list_entry(e, struct file_item, elem);
+        if (f_i->fd == fi->fd) {
+          list_remove(e);
+        }
+      }
+      //free(f);
       lock_release(&f_lock); 
       break;
 
