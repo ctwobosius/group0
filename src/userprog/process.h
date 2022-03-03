@@ -19,10 +19,10 @@ typedef void (*stub_fun)(pthread_fun, void*);
 
 // for keeping track of child processes
 typedef struct child_data {
-  struct semaphore sema;
+  struct semaphore load_sema;
   struct lock ref_cnt_lock;
   size_t ref_cnt;
-  bool waited;  // has the child been waited on by the parent?
+  struct semaphore wait_sema; // also indicates if there's something waiting on this
   bool loaded;  // has the child executable been loaded successfully?
   int exit_status;   // child exit status
   int tid;    // child tid

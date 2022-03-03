@@ -87,7 +87,8 @@ pid_t process_execute(const char* fname_and_args) {
     new_child->loaded = false; //  replace
     new_child->fname_and_args = fn_copy;
     
-    sema_init(&new_child->sema, 0);
+    sema_init(&new_child->wait_sema, 0);
+    sema_init(&new_child->load_sema, 0);
     lock_init(&new_child->ref_cnt_lock);
     list_push_front(&thread_current()->pcb->child_list, &new_child->elem);
   }
@@ -157,7 +158,7 @@ static void start_process(void* new_child) {
   } else {
     thread_current()->pcb->my_data->loaded = 0;
   }
-  sema_up(&thread_current()->pcb->my_data->sema);
+  sema_up(&thread_current()->pcb->my_data->load_sema);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -198,9 +199,11 @@ static void start_process(void* new_child) {
 int process_wait(pid_t child_pid UNUSED) {
   // sema_down(&temporary);
   // return 0;
+  
   struct list child_list = thread_current()->pcb->child_list;
   bool found = false;
   child_t* child;
+
   for (struct list_elem *e = list_begin(&child_list);
           e != list_end(&child_list);
           e = list_next(e))
@@ -212,12 +215,13 @@ int process_wait(pid_t child_pid UNUSED) {
     }
   }
   
-  if (!found || child->waited) {
+  if (!found) {
     return -1;
   }
 
-  child->waited = true;
-  sema_down(&child->sema);    // this is the "wait" part
+  // sema_down(&child->load_sema);    // this is the "wait" part
+  sema_down(&child->wait_sema);    // this is the "wait" part
+  
   int exit_status = child->exit_status;
   lock_acquire(&child->ref_cnt_lock);
   child->ref_cnt--;

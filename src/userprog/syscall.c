@@ -97,7 +97,7 @@ static void terminate_if_invalid(intr_frame_t* f, uint32_t* ptr) {
 static int next_fd(uint32_t* args UNUSED) {
   int fd = thread_current()->pcb->next_fd;
   thread_current()->pcb->next_fd += 1;
-  return fd; // fix to have next_fd recalculate
+  return fd;
 }
 
 static struct file_item* init_file(int fd, struct file* file, char* f_name) {
@@ -163,8 +163,7 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
   f->eax = fd;
 }
 
-
-static struct file_item* fd_to_file(int fd) {
+static struct list_elem* fd_to_list_elem(int fd) {
   struct file_item* f;
   struct list active_files = thread_current()->pcb->active_files;
   for (struct list_elem *e = list_begin(&active_files);
@@ -173,10 +172,15 @@ static struct file_item* fd_to_file(int fd) {
   {
     f = list_entry(e, struct file_item, elem);
     if (fd == f->fd) {
-      return f;
+      return e;
     }
   }
   return NULL;
+}
+
+static struct file_item* fd_to_file(int fd) {
+  struct list_elem* e = fd_to_list_elem(fd);
+  return list_entry(e, struct file_item, elem);
 }
 
 
@@ -323,7 +327,7 @@ static void syscall_handler(intr_frame_t* f) {
         break;
       }
 
-      sema_down(&child->sema);   // wait for child to set loaded
+      sema_down(&child->load_sema);   // wait for child to set loaded
       bool loaded = child->loaded;
       
       // Return new process's TID, if cannot load return -1
@@ -421,29 +425,32 @@ static void syscall_handler(intr_frame_t* f) {
     case SYS_CLOSE:
 			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
       fd = (int) args[1];
-      fi = fd_to_file(fd);
-      if (fi == NULL) { 
+      struct list_elem* e = fd_to_list_elem(fd);
+      fi = list_entry(e, struct file_item, elem);
+      if (fi == NULL) {
         exit_sys(f, -1);
       }
       infile = fi->infile;
       lock_acquire(&f_lock);
       file_close(infile);
+      list_remove(e);
+      free(fi);
 
       //TODO: remove the file_item from active_files
-      struct file_item* f_i;
-      struct list active_files = thread_current()->pcb->active_files;
-      for (struct list_elem *e = list_begin(&active_files);
-            e != list_end(&active_files); 
-            e = list_next(e)) 
-      {
-        f_i = list_entry(e, struct file_item, elem);
-        if (f_i->fd == fi->fd) {
-          list_remove(e);
-          break;
-        }
-      }
+      // struct file_item* f_i;
+      // struct list active_files = thread_current()->pcb->active_files;
+      // for (struct list_elem *e = list_begin(&active_files);
+      //       e != list_end(&active_files); 
+      //       e = list_next(e)) 
+      // {
+      //   f_i = list_entry(e, struct file_item, elem);
+      //   if (f_i->fd == fi->fd) {
+      //     list_remove(e);
+      //     break;
+      //   }
+      // }
       //free(f);
-      lock_release(&f_lock); 
+      lock_release(&f_lock);
       break;
 
     case SYS_EXIT:

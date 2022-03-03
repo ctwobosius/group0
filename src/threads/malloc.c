@@ -64,8 +64,6 @@ static size_t desc_cnt;       /* Number of descriptors. */
 static struct arena* block_to_arena(struct block*);
 static struct block* arena_to_block(struct arena*, size_t idx);
 
-// static size_t counter = 0;
-
 /* Initializes the malloc() descriptors. */
 void malloc_init(void) {
   size_t block_size;
