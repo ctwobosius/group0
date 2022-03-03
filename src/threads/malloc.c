@@ -64,8 +64,6 @@ static size_t desc_cnt;       /* Number of descriptors. */
 static struct arena* block_to_arena(struct block*);
 static struct block* arena_to_block(struct arena*, size_t idx);
 
-// static size_t counter = 0;
-
 /* Initializes the malloc() descriptors. */
 void malloc_init(void) {
   size_t block_size;
@@ -83,8 +81,6 @@ void malloc_init(void) {
 /* Obtains and returns a new block of at least SIZE bytes.
    Returns a null pointer if memory is not available. */
 void* malloc(size_t size) {
-  // counter++;
-  // printf("\nmalloc count: %u", counter); // REMOVE when done debugging
   struct desc* d;
   struct block* b;
   struct arena* a;
