@@ -84,11 +84,10 @@ pid_t process_execute(const char* fname_and_args) {
   else {
     new_child->ref_cnt = 2;
     new_child->waited = false;
-    new_child->loaded = false; //  replace
+    new_child->loaded = false;
     new_child->fname_and_args = fn_copy;
-    
-    sema_init(&new_child->wait_sema, 0);
     sema_init(&new_child->load_sema, 0);
+    sema_init(&new_child->wait_sema, 0);
     lock_init(&new_child->ref_cnt_lock);
     list_push_front(&thread_current()->pcb->child_list, &new_child->elem);
   }
@@ -100,9 +99,8 @@ pid_t process_execute(const char* fname_and_args) {
   if (tid == TID_ERROR){
     palloc_free_page(fn_copy);
     return TID_ERROR;
-  } 
+  }
 
-  new_child->loaded = true;  //  replace
   new_child->tid = tid;
   return tid;
 }
@@ -160,6 +158,12 @@ static void start_process(void* new_child) {
   }
   sema_up(&thread_current()->pcb->my_data->load_sema);
 
+  printf("\nfname_args: %s", fname_args);
+  printf("\nload sema up: %d", (int) &t->pcb->my_data->load_sema);
+  printf("\nthread tid: %d\n", t->pcb->my_data->tid);
+
+  sema_up(&thread_current()->pcb->my_data->load_sema);
+
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
     // Avoid race where PCB is freed before t->pcb is set to NULL
@@ -198,8 +202,7 @@ static void start_process(void* new_child) {
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
   // sema_down(&temporary);
-  // return 0;
-  
+  // return 0;  
   struct list child_list = thread_current()->pcb->child_list;
   bool found = false;
   child_t* child;
@@ -215,13 +218,12 @@ int process_wait(pid_t child_pid UNUSED) {
     }
   }
   
-  if (!found) {
+  if (!found || child->waited) {
     return -1;
   }
 
-  // sema_down(&child->load_sema);    // this is the "wait" part
+  child->waited = true;
   sema_down(&child->wait_sema);    // this is the "wait" part
-  
   int exit_status = child->exit_status;
   lock_acquire(&child->ref_cnt_lock);
   child->ref_cnt--;
@@ -229,7 +231,8 @@ int process_wait(pid_t child_pid UNUSED) {
   if (child->ref_cnt == 0) {
     free(child);
   }
-  
+
+  printf("\n i am alive\n");  //DEBUG REMOVE
   return exit_status;
 }
 
@@ -367,7 +370,6 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   int i;
 
   /* Aaron's addition: get filename for filesys_open */
-  // char* fn_copy = malloc(sizeof(fname_and_args));
   char fn_copy[strlen(fname_and_args) + 1];
   strlcpy(fn_copy, fname_and_args, strlen(fname_and_args) + 1);
   char* save_ptr;
