@@ -23,7 +23,6 @@ typedef struct child_data {
   struct semaphore wait_sema;
   struct lock ref_cnt_lock;
   size_t ref_cnt;
-  bool waited;  // has the child been waited on by the parent?
   bool loaded;  // has the child executable been loaded successfully?
   int exit_status;   // child exit status
   int tid;    // child tid
@@ -55,7 +54,7 @@ void userprog_init(void);
 
 pid_t process_execute(const char* fname_and_args);
 int process_wait(pid_t);
-void process_exit(void);
+void process_exit(int exit_status);
 void process_activate(void);
 
 bool is_main_thread(struct thread*, struct process*);

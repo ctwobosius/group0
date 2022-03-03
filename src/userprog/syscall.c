@@ -16,7 +16,6 @@
 
 #define MAX_OPEN_FILES 128
 #define EOF '\n'
-#define DEBUG printf
 
 typedef struct intr_frame intr_frame_t;
 static void syscall_handler(intr_frame_t* f);
@@ -40,19 +39,6 @@ static struct lock f_lock;
 //   return error_code != -1;
 // }
 
-// static struct child_data* init_shared_data() {
-//   struct child_data* shared_data = malloc(sizeof(struct child_data));
-//   sema_init(shared_data->sema);
-//   lock_init(shared_data->lock);
-//   shared_data->ref_cnt = 2;
-//   shared_data->waited = false;
-//   shared_data->exited = false;
-//   shared_data->loaded = false;
-//   shared_data->status = 0;
-//   list_init(shared_data);
-//   return shared_data;
-// }
-
 void syscall_init(void) { 
   lock_init(&f_lock);
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
@@ -66,37 +52,9 @@ static bool ptr_invalid(const uint32_t* ptr) {
   ;
 }
 
-static void exit_sys(intr_frame_t* f, int status)
-{
-  child_t* my_data = thread_current()->pcb->my_data;
-  my_data->exit_status = status;
-  lock_acquire(&my_data->ref_cnt_lock);
-  my_data->ref_cnt--;
-  lock_release(&my_data->ref_cnt_lock);
-  sema_up(&my_data->wait_sema);
-
-  if (my_data->ref_cnt == 0) {
-    list_remove(&my_data->elem);
-    free(my_data);
-  }
-
-
-  // struct list child_list = thread_current()->pcb->child_list;
-  // child_t* child;
-  // for (struct list_elem *e = list_begin(&child_list);
-  //           e != list_end(&child_list);
-  //           e = list_next(e))
-  // {
-  //     child = list_entry(e, child_t, elem);
-  //     // lock_acquire(&child->ref_cnt_lock);
-  //     // child->ref_cnt--;    // decrement ref_cnt for all children
-  //     // lock_release(&child->ref_cnt_lock);
-  // }
-
-
-  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
+static void exit_sys(intr_frame_t* f, int status) {
   f->eax = status;
-  process_exit();
+  process_exit(status);
 }
 
 static void check_ptr(const void* ptr, intr_frame_t* f) {
@@ -165,12 +123,6 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
   }
   int fd = next_fd(args);
 
-  // struct file_item* new_file = malloc(sizeof(struct file_item));
-  // new_file->ref_cnt = 1;
-  // new_file->fd = fd;
-  // new_file->infile = file;
-  // new_file->name = (char *) args[1];
-
   // may want to put that in init_file incase we need to create files again, eg:
   struct file_item* new_file = init_file(fd, file, (char*) args[1]);
 
@@ -181,9 +133,9 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
 
 static struct list_elem* fd_to_list_elem(int fd) {
   struct file_item* f;
-  struct list active_files = thread_current()->pcb->active_files;
-  for (struct list_elem *e = list_begin(&active_files);
-        e != list_end(&active_files); 
+  struct list* active_files = &thread_current()->pcb->active_files;
+  for (struct list_elem *e = list_begin(active_files);
+        e != list_end(active_files); 
         e = list_next(e)) 
   {
     f = list_entry(e, struct file_item, elem);
@@ -324,38 +276,6 @@ static void syscall_handler(intr_frame_t* f) {
       pid_t pid = process_execute((char*) args[1]);
       // TID_ERROR is -1, so if fails, fine to return pid     
       f->eax = pid;
-
-      // NOT IN PROCESS EXEC
-      // struct list child_list = thread_current()->pcb->child_list;
-      // bool found = false;
-      // struct child_data* child;
-      // for (struct list_elem *e = list_begin(&child_list);
-      //          e != list_end(&child_list);
-      //          e = list_next(e))
-      // {
-      //    child = list_entry(e, child_t, elem);
-      //    if (child->tid == pid) {
-      //       found = true;
-      //       break;
-      //    }
-      // }
-
-      // if (!found) {
-      //   f->eax = -1;
-      //   break;
-      // }
-       // NOT IN PROCESS EXEC
-
-      // sema_down(&child->load_sema);   // wait for child to set loaded
-      // bool loaded = child->loaded;
-      
-      // // Return new process's TID, if cannot load return -1
-      // if (pid == TID_ERROR || !loaded) {
-      //   list_remove(&child->elem); // NOT IN PROCESS EXEC
-      //   f->eax = -1;
-      // } else {
-      //   f->eax = pid;
-      // }
       break;
     
     case SYS_WAIT:
