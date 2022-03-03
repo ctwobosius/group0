@@ -40,9 +40,7 @@ void userprog_init(void) {
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
 
-  // @Aaron
-  // t->pcb->child_list = malloc(sizeof(struct list));
-  list_init(&t->pcb->child_list);
+  list_init(&t->pcb->child_list);   // @Aaron
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -83,7 +81,6 @@ pid_t process_execute(const char* fname_and_args) {
   } 
   else {
     new_child->ref_cnt = 2;
-    new_child->waited = false;
     new_child->loaded = false;
     new_child->fname_and_args = fn_copy;
     sema_init(&new_child->load_sema, 0);
@@ -150,18 +147,16 @@ static void start_process(void* new_child) {
     success = load(fname_args, &if_.eip, &if_.esp);
   }
 
+  // printf("\nfname_args: %s", fname_args);  FOR DEBUGGING
+  // printf("\nload sema up: %d", (int) &t->pcb->my_data->load_sema);
+  // printf("\nthread tid: %d\n", t->pcb->my_data->tid);
+
   // aaron get child/parent shared data structure to update with load success status
   if (success) {
     thread_current()->pcb->my_data->loaded = 1;
   } else {
     thread_current()->pcb->my_data->loaded = 0;
   }
-  sema_up(&thread_current()->pcb->my_data->load_sema);
-
-  printf("\nfname_args: %s", fname_args);
-  printf("\nload sema up: %d", (int) &t->pcb->my_data->load_sema);
-  printf("\nthread tid: %d\n", t->pcb->my_data->tid);
-
   sema_up(&thread_current()->pcb->my_data->load_sema);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -200,7 +195,7 @@ static void start_process(void* new_child) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
+int process_wait(pid_t child_pid) {
   // sema_down(&temporary);
   // return 0;  
   struct list child_list = thread_current()->pcb->child_list;
@@ -229,10 +224,10 @@ int process_wait(pid_t child_pid UNUSED) {
   child->ref_cnt--;
   lock_release(&child->ref_cnt_lock);
   if (child->ref_cnt == 0) {
+    list_remove(&child->elem);
     free(child);
   }
 
-  printf("\n i am alive\n");  //DEBUG REMOVE
   return exit_status;
 }
 

@@ -16,6 +16,7 @@
 
 #define MAX_OPEN_FILES 128
 #define EOF '\n'
+#define DEBUG printf
 
 typedef struct intr_frame intr_frame_t;
 static void syscall_handler(intr_frame_t* f);
@@ -75,18 +76,23 @@ static void exit_sys(intr_frame_t* f, int status)
   sema_up(&my_data->wait_sema);
 
   if (my_data->ref_cnt == 0) {
+    list_remove(&my_data->elem);
     free(my_data);
   }
 
-  struct list child_list = thread_current()->pcb->child_list;
-  child_t* child;
-  for (struct list_elem *e = list_begin(&child_list);
-            e != list_end(&child_list);
-            e = list_next(e))
-  {
-      child = list_entry(e, child_t, elem);
-      child->ref_cnt--;    // decrement ref_cnt for all children
-  }
+
+  // struct list child_list = thread_current()->pcb->child_list;
+  // child_t* child;
+  // for (struct list_elem *e = list_begin(&child_list);
+  //           e != list_end(&child_list);
+  //           e = list_next(e))
+  // {
+  //     child = list_entry(e, child_t, elem);
+  //     // lock_acquire(&child->ref_cnt_lock);
+  //     // child->ref_cnt--;    // decrement ref_cnt for all children
+  //     // lock_release(&child->ref_cnt_lock);
+  // }
+
 
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   f->eax = status;
@@ -317,7 +323,7 @@ static void syscall_handler(intr_frame_t* f) {
 
       // Run executable whose name is in arg, pass given arguments
       tid_t tid = process_execute((char*) args[1]);
-      printf("\nsad pid: %d\n", (int) tid);
+      // printf("\nsad pid: %d\n", (int) tid);
 
       struct list child_list = thread_current()->pcb->child_list;
       bool found = false;
@@ -338,11 +344,8 @@ static void syscall_handler(intr_frame_t* f) {
         break;
       }
 
-      printf("\nload sema down: %d\n", (int) &child->load_sema);  //DEBUG REMOVE
-      printf("\nsyscall tid: %d\n", (int) child->tid);  //DEBUG REMOVE
       sema_down(&child->load_sema);   // wait for child to set loaded
       bool loaded = child->loaded;
-      printf("\nloaded: %d\n", loaded); //DEBUG REMOVE
       
       // Return new process's TID, if cannot load return -1
       if (tid == TID_ERROR || !loaded) {
