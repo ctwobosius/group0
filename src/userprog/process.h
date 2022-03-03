@@ -48,6 +48,9 @@ struct process {
   // for child processes
   struct list child_list;
   child_t* my_data;
+
+  // for file_allow_write in process_exit
+  struct file* my_file;
 };
 
 void userprog_init(void);

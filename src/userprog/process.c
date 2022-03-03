@@ -305,6 +305,8 @@ void process_exit(int exit_status) {
     free(my_data);
   }
 
+  file_allow_write(thread_current()->pcb->my_file); // allow write to executable
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pcb->pagedir;
@@ -454,8 +456,6 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
     goto done;
   }
 
-  // free(fn_copy);
-
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
   for (i = 0; i < ehdr.e_phnum; i++) {
@@ -514,6 +514,8 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
   *eip = (void (*)(void))ehdr.e_entry;
 
   success = true;
+  thread_current()->pcb->my_file = file;
+  file_deny_write(file);    // @Aaron, deny write access while executable is loaded
 
 done:
   /* We arrive here whether the load is successful or not. */
