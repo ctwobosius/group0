@@ -20,7 +20,6 @@
 
 typedef struct intr_frame intr_frame_t;
 static void syscall_handler(intr_frame_t* f);
-static struct lock f_lock;
 
 // All of these are static functions are to avoid "no previous prototype for function"
 
@@ -86,7 +85,7 @@ static struct file_item* init_file(int fd, struct file* file, char* f_name) {
 
 /* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARG_BYTES 
 to ensure we don't read a bad byte both at the beginning and end*/
-static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_arg_bytes, bool checking_read) {
+static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_arg_bytes) {
   // we do - 1 because we don't want to check into the next word (last byte is right before next word)
   uint32_t* border = args + num_arg_bytes - 4;
   // terminate_if_invalid(f, args);
@@ -113,7 +112,7 @@ static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_arg_by
 }
 
 static void do_open(intr_frame_t* f, uint32_t* args) {
-  check_valid_frame(f, args, sizeof(char*) + sizeof(char*), true);
+  check_valid_frame(f, args, sizeof(char*) + sizeof(char*));
   // terminate_if_invalid(f, (uint32_t*) args[1]);
   lock_acquire(&f_lock);
   struct file* file = filesys_open((char *) args[1]);
@@ -149,25 +148,30 @@ static struct list_elem* fd_to_list_elem(int fd) {
 
 static struct file_item* fd_to_file(int fd) {
   struct list_elem* e = fd_to_list_elem(fd);
-  return list_entry(e, struct file_item, elem);
+  if (e) {
+    return list_entry(e, struct file_item, elem);
+  } else {
+    return NULL;
+  }
+  
 }
 
 
 // called from syscall_handler to actually do the reading
 static void do_read(intr_frame_t* f, uint32_t* args) {
-  check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
+  check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t));
   char* buf = (char*) args[2];
   size_t size = (size_t) args[3];
-  terminate_if_invalid(f, (uint32_t*) buf);
-  terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
+  // terminate_if_invalid(f, (uint32_t*) buf);
+  // terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
   // check_ptr(buf, f);
   // check_ptr(buf + size * sizeof(char*), f);
 
   // check characters in buf args[2]
-  check_valid_frame(f, (uint32_t*) &(buf[0]), sizeof(char*) - 1, false);
+  check_valid_frame(f, (uint32_t*) &(buf[0]), sizeof(char*) - 1);
   for (size_t i=0; i < strlen(buf); i++)
   {
-    check_valid_frame(f, (uint32_t*) &(buf[i]), sizeof(char*) - 1, false);
+    check_valid_frame(f, (uint32_t*) &(buf[i]), sizeof(char*) - 1);
   }
 
   int fd = (int) args[1];
@@ -206,11 +210,11 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
   const char* buffer = (char*) args[2];
 
   // check characters in buffer args[2]
-  // check_valid_frame(f, (uint32_t*) &(buffer[0]), sizeof(char*) - 1, false);
+  // check_valid_frame(f, (uint32_t*) &(buffer[0]), sizeof(char*) - 1);
   for (size_t i=0; i < strlen(buffer); i++)
   {
     check_ptr(buffer + i, f); // buffer is char* type so buffer+1 actually adds 1
-    // check_valid_frame(f, (uint32_t*) &(buffer[i]), sizeof(char*) - 1, false);
+    // check_valid_frame(f, (uint32_t*) &(buffer[i]), sizeof(char*) - 1);
   }
 
   int fd = (int) args[1];
@@ -255,7 +259,7 @@ static void remove_syscall(intr_frame_t* f, uint32_t* args) {
 
 static void syscall_handler(intr_frame_t* f) {
   uint32_t* args = ((uint32_t*)f->esp);
-  check_valid_frame(f, args, sizeof(char*), false);
+  check_valid_frame(f, args, sizeof(char*));
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -269,7 +273,7 @@ static void syscall_handler(intr_frame_t* f) {
   struct file_item* fi;
   switch (args[0]) {
     case SYS_EXEC:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(char*), false);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(char*));
 			check_ptr((void *) args[1], f); // verify args
 
       // Run executable whose name is in arg, pass given arguments
@@ -292,13 +296,13 @@ static void syscall_handler(intr_frame_t* f) {
       break;
 
   	case SYS_READ:
-			check_ptr((void*) args[1], f); // verify args
+			// check_ptr((void*) args[1], f); // verify args
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(unsigned));
       do_read(f, args);
       break;
 
   	case SYS_WRITE:
-      check_valid_frame(f, args, 
-        sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t), true);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t));
       check_ptr((void*) args[2], f); // verify args
       write_syscall(f, args);
       break;
@@ -306,7 +310,7 @@ static void syscall_handler(intr_frame_t* f) {
     case SYS_CREATE:
 			; // verify args
       // TODO: check if this is all good
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));
       if ((char*) args[1] == NULL || ptr_invalid((uint32_t*) args[1])) {
           exit_sys(f, -1);
       }
@@ -322,7 +326,7 @@ static void syscall_handler(intr_frame_t* f) {
     
     case SYS_FILESIZE:
 			; // verify args
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int));
       fd = (int) args[1];
       fi = fd_to_file(fd);
       if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
@@ -336,7 +340,7 @@ static void syscall_handler(intr_frame_t* f) {
     
     case SYS_SEEK:
 			; // verify args
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t), false);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));
       fd = (int) args[1];
       fi = fd_to_file(fd);
       if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
@@ -349,7 +353,7 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_TELL:
-			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+			check_valid_frame(f, args, sizeof(char*) + sizeof(int));
       fd = (int) args[1];
       fi = fd_to_file(fd);
       if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
@@ -362,7 +366,7 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_CLOSE:
-			check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+			check_valid_frame(f, args, sizeof(char*) + sizeof(int));
       fd = (int) args[1];
       struct list_elem* e = fd_to_list_elem(fd);
       fi = list_entry(e, struct file_item, elem);
@@ -393,18 +397,18 @@ static void syscall_handler(intr_frame_t* f) {
       break;
 
     case SYS_EXIT:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int));
       exit_sys(f, args[1]);
       break;
     
     case SYS_PRACTICE:
-			check_valid_frame(f, args, sizeof(char*), false);
+			check_valid_frame(f, args, sizeof(char*));
       int i = (int) args[1];
       f->eax = i + 1;
       break;
     
     case SYS_COMPUTE_E:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int));
       f->eax = sys_sum_to_e(args[1]);
       break;
   }

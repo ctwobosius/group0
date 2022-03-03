@@ -2,8 +2,19 @@
 #define FILESYS_FILE_H
 
 #include "filesys/off_t.h"
+#include "../threads/synch.h"
+
+// for file op syscalls
+typedef struct file_item {
+  struct file* infile; // file pointer
+  char* name; // file name
+  int fd; // index of the FILE* instance
+  size_t ref_cnt; // so we know when to free the struct
+  struct list_elem elem;
+} file_t;
 
 struct inode;
+struct lock f_lock;  // for file-op synchronization @Aaron
 
 /* Opening and closing files. */
 struct file* file_open(struct inode*);

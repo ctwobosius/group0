@@ -270,17 +270,17 @@ void process_exit(int exit_status) {
   sema_up(&my_data->wait_sema);
 
   // TODO: close and free our files
-  // struct list active_files = thread_current()->pcb->active_files;
-  //lock_acquire(&f_lock);
-  // for (struct list_elem *e = list_begin(&active_files);
-  //           (e != NULL) && (e != list_end(&active_files)); 
-  //           e = list_next(e)) 
-  //     {
-    //fi = list_entry(e, struct file_item, elem);
-    //file_close(fi->infile);
-    //free(fi);
-  //     }
-  //lock_release(&f_lock);
+  struct list* active_files = &thread_current()->pcb->active_files;
+  struct list_elem* e = list_begin(active_files);
+  struct file_item* fi;
+  lock_acquire(&f_lock);
+  while (e != list_end(active_files)) {
+    fi = list_entry(e, struct file_item, elem);
+    file_close(fi->infile);
+    e = list_next(e);
+    free(fi);
+  }
+  lock_release(&f_lock);
 
   struct list* child_list = &thread_current()->pcb->child_list;
 
@@ -305,7 +305,9 @@ void process_exit(int exit_status) {
     free(my_data);
   }
 
-  file_allow_write(thread_current()->pcb->my_file); // allow write to executable
+  // lock_acquire(&f_lock);
+  // file_close(thread_current()->pcb->my_file); // allow write to executable
+  // lock_release(&f_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
