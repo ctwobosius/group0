@@ -13,6 +13,7 @@
 #include "devices/shutdown.h"
 #include <string.h>
 #include "threads/malloc.h"
+#include "lib/float.h"
 
 #define MAX_OPEN_FILES 128
 #define EOF '\n'
@@ -267,7 +268,6 @@ static void syscall_handler(intr_frame_t* f) {
   struct file* infile;
   struct file_item* fi;
   switch (args[0]) {
-
     case SYS_EXEC:
       check_valid_frame(f, args, sizeof(char*) + sizeof(char*), false);
 			check_ptr((void *) args[1], f); // verify args
@@ -401,6 +401,11 @@ static void syscall_handler(intr_frame_t* f) {
 			check_valid_frame(f, args, sizeof(char*), false);
       int i = (int) args[1];
       f->eax = i + 1;
+      break;
+    
+    case SYS_COMPUTE_E:
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int), false);
+      f->eax = sys_sum_to_e(args[1]);
       break;
   }
 }

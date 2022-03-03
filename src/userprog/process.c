@@ -177,6 +177,11 @@ static void start_process(void* new_child) {
     sema_up(&temporary);
     thread_exit();
   }
+  uint8_t fpu[108];
+  asm volatile("fsave (%0)": :"g"(&fpu) : "memory");
+  asm volatile("fninit":::);
+  asm volatile("fsave (%0)": :"g"(&(if_.fpu)) : "memory");
+  asm volatile("frstor (%0)": :"g"(&fpu) : );
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
