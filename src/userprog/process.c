@@ -75,7 +75,6 @@ pid_t process_execute(const char* fname_and_args) {
   if (thread_current()->pcb) {
     new_child = malloc(sizeof(child_t));
   }
-  // aaron
 
   // Calvin
   if (!new_child){
@@ -86,7 +85,7 @@ pid_t process_execute(const char* fname_and_args) {
     new_child->ref_cnt = 2;
     new_child->waited = false;
     new_child->loaded = false; //  replace
-    new_child->fname_and_args = fname_and_args;
+    new_child->fname_and_args = fn_copy;
     
     sema_init(&new_child->sema, 0);
     lock_init(&new_child->ref_cnt_lock);
@@ -95,25 +94,23 @@ pid_t process_execute(const char* fname_and_args) {
   // Calvin
 
   /* Create a new thread to execute FILE_NAME. */
-  // tid = thread_create(file_name, PRI_DEFAULT, start_process, new_child);
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, new_child);
 
   if (tid == TID_ERROR){
     palloc_free_page(fn_copy);
     return TID_ERROR;
   } 
 
-  // new_child->loaded = true;  //  replace
-  // new_child->tid = tid;
+  new_child->loaded = true;  //  replace
+  new_child->tid = tid;
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* new_child) {
-  // child_t* child = (child_t*) new_child;
-  // char* fname_args = child->fname_and_args;
-  char* fname_args = (char*) new_child;
+  child_t* child = (child_t*) new_child;
+  char* fname_args = child->fname_and_args;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -138,7 +135,7 @@ static void start_process(void* new_child) {
     list_init(&new_pcb->child_list);
 
     // @Aaron initialize my_data (assuming I am a child process)
-    // new_pcb->my_data = child;
+    new_pcb->my_data = child;
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
@@ -155,12 +152,12 @@ static void start_process(void* new_child) {
   }
 
   // aaron get child/parent shared data structure to update with load success status
-  // if (success) {
-  //   thread_current()->pcb->my_data->loaded = 1;
-  // } else {
-  //   thread_current()->pcb->my_data->loaded = 0;
-  // }
-  // sema_up(thread_current()->pcb->my_data->sema);
+  if (success) {
+    thread_current()->pcb->my_data->loaded = 1;
+  } else {
+    thread_current()->pcb->my_data->loaded = 0;
+  }
+  sema_up(&thread_current()->pcb->my_data->sema);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {

@@ -428,6 +428,7 @@ static void syscall_handler(intr_frame_t* f) {
       infile = fi->infile;
       lock_acquire(&f_lock);
       file_close(infile);
+
       //TODO: remove the file_item from active_files
       struct file_item* f_i;
       struct list active_files = thread_current()->pcb->active_files;
@@ -438,6 +439,7 @@ static void syscall_handler(intr_frame_t* f) {
         f_i = list_entry(e, struct file_item, elem);
         if (f_i->fd == fi->fd) {
           list_remove(e);
+          break;
         }
       }
       //free(f);
