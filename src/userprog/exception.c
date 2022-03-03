@@ -5,6 +5,7 @@
 #include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -80,12 +81,26 @@ static void kill(struct intr_frame* f) {
       intr_dump_frame(f);
 
       // // @Aaron get/set shared data to notify parent in case parent waits
-      // child_t* my_data = thread_current()->pcb->my_data;
-      // my_data->exit_status = -1;
-      // lock_acquire(my_data->ref_cnt_lock);
-      // my_data->ref_cnt--;
-      // lock_release(my_data->ref_cnt_lock);
-      // sema_up(my_data->sema);
+      child_t* my_data = thread_current()->pcb->my_data;
+      my_data->exit_status = -1;
+      lock_acquire(&my_data->ref_cnt_lock);
+      my_data->ref_cnt--;
+      lock_release(&my_data->ref_cnt_lock);
+      sema_up(&my_data->wait_sema);
+
+      if (my_data->ref_cnt == 0) {
+         free(my_data);
+      }
+
+      struct list child_list = thread_current()->pcb->child_list;
+      struct child_data* child;
+      for (struct list_elem *e = list_begin(&child_list);
+               e != list_end(&child_list);
+               e = list_next(e))
+      {
+         child = list_entry(e, child_t, elem);
+         child->ref_cnt--;    // decrement ref_cnt for all children
+      }
 
       printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
       process_exit();

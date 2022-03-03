@@ -23,21 +23,21 @@ static struct lock f_lock;
 
 // All of these are static functions are to avoid "no previous prototype for function"
 
-// From section A.3 of the spec
-/* Reads a byte at user virtual address UADDR. UADDR must be below PHYS_BASE.
-Returns the byte value if successful, -1 if a segfault occurred. */
-static int get_user (const uint8_t *uaddr) {
-  int result;
-  asm ("movl $1f, %0; movzbl %1, %0; 1:" : "=&a" (result) : "m" (*uaddr));
-  return result;
-}
-/* Writes BYTE to user address UDST. UDST must be below PHYS_BASE. Returns
-true if successful, false if a segfault occurred. */
-static bool put_user (uint8_t *udst, uint8_t byte) {
-  int error_code;
-  asm ("movl $1f, %0; movb %b2, %1; 1:" : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-  return error_code != -1;
-}
+// // From section A.3 of the spec
+// /* Reads a byte at user virtual address UADDR. UADDR must be below PHYS_BASE.
+// Returns the byte value if successful, -1 if a segfault occurred. */
+// static int get_user (const uint8_t *uaddr) {
+//   int result;
+//   asm ("movl $1f, %0; movzbl %1, %0; 1:" : "=&a" (result) : "m" (*uaddr));
+//   return result;
+// }
+// /* Writes BYTE to user address UDST. UDST must be below PHYS_BASE. Returns
+// true if successful, false if a segfault occurred. */
+// static bool put_user (uint8_t *udst, uint8_t byte) {
+//   int error_code;
+//   asm ("movl $1f, %0; movb %b2, %1; 1:" : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+//   return error_code != -1;
+// }
 
 // static struct child_data* init_shared_data() {
 //   struct child_data* shared_data = malloc(sizeof(struct child_data));
@@ -67,16 +67,26 @@ static bool ptr_invalid(const uint32_t* ptr) {
 
 static void exit_sys(intr_frame_t* f, int status)
 {
-  // child_t* my_data = thread_current()->pcb->my_data;
-  // my_data->exit_status = status;
-  // lock_acquire(my_data->ref_cnt_lock);
-  // my_data->ref_cnt--;
-  // lock_release(my_data->ref_cnt_lock);
-  // sema_up(my_data->sema);
+  child_t* my_data = thread_current()->pcb->my_data;
+  my_data->exit_status = status;
+  lock_acquire(&my_data->ref_cnt_lock);
+  my_data->ref_cnt--;
+  lock_release(&my_data->ref_cnt_lock);
+  sema_up(&my_data->wait_sema);
 
-  // if (my_data->ref_cnt == 0) {
-  //   free(my_data);
-  // }
+  if (my_data->ref_cnt == 0) {
+    free(my_data);
+  }
+
+  struct list child_list = thread_current()->pcb->child_list;
+  struct child_data* child;
+  for (struct list_elem *e = list_begin(&child_list);
+            e != list_end(&child_list);
+            e = list_next(e))
+  {
+      child = list_entry(e, child_t, elem);
+      child->ref_cnt--;    // decrement ref_cnt for all children
+  }
 
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, status);
   f->eax = status;
@@ -302,7 +312,8 @@ static void syscall_handler(intr_frame_t* f) {
 			check_ptr((void *) args[1], f); // verify args
 
       // Run executable whose name is in arg, pass given arguments
-      pid_t pid = process_execute((char*) args[1]);
+      tid_t tid = process_execute((char*) args[1]);
+      printf("\nsad pid: %d\n", (int) tid);
 
       struct list child_list = thread_current()->pcb->child_list;
       bool found = false;
@@ -312,7 +323,7 @@ static void syscall_handler(intr_frame_t* f) {
                e = list_next(e))
       {
          child = list_entry(e, child_t, elem);
-         if (child->tid == pid) {
+         if (child->tid == tid) {
             found = true;
             break;
          }
@@ -323,15 +334,18 @@ static void syscall_handler(intr_frame_t* f) {
         break;
       }
 
-      sema_down(&child->sema);   // wait for child to set loaded
+      printf("\nload sema down: %d\n", (int) &child->load_sema);  //DEBUG REMOVE
+      printf("\nsyscall tid: %d\n", (int) child->tid);  //DEBUG REMOVE
+      sema_down(&child->load_sema);   // wait for child to set loaded
       bool loaded = child->loaded;
+      printf("\nloaded: %d\n", loaded); //DEBUG REMOVE
       
       // Return new process's TID, if cannot load return -1
-      if (pid == TID_ERROR || !loaded) {
+      if (tid == TID_ERROR || !loaded) {
         list_remove(&child->elem);
         f->eax = -1;
       } else {
-        f->eax = pid;
+        f->eax = tid;
       }
       break;
     
