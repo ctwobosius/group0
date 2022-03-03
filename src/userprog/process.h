@@ -19,14 +19,15 @@ typedef void (*stub_fun)(pthread_fun, void*);
 
 // for keeping track of child processes
 typedef struct child_data {
-  struct semaphore* sema;
-  struct lock* lock;
+  struct semaphore sema;
+  struct lock ref_cnt_lock;
   size_t ref_cnt;
   bool waited;  // has the child been waited on by the parent?
   bool loaded;  // has the child executable been loaded successfully?
   int exit_status;   // child exit status
   int tid;    // child tid
   struct list_elem elem;
+  char* fname_and_args;   // fname and args 
 } child_t;
 
 /* The process control block for a given process. Since
@@ -41,15 +42,12 @@ struct process {
   struct thread* main_thread; /* Pointer to main thread */
   
   // for file ops
-  struct list* active_files;
+  struct list active_files;
   int next_fd;
 
   // for child processes
-  struct list* child_list;
+  struct list child_list;
   child_t* my_data;
-  
-//   struct list* shared_data_list; // bad aaron
-//   struct semaphore* tid_sema; // bad aaron
 };
 
 void userprog_init(void);

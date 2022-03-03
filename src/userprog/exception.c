@@ -78,13 +78,15 @@ static void kill(struct intr_frame* f) {
       printf("%s: dying due to interrupt %#04x (%s).\n", thread_name(), f->vec_no,
              intr_name(f->vec_no));
       intr_dump_frame(f);
-      // @Aaron get/set shared data to notify parent in case parent waits
-      child_t* my_data = thread_current()->pcb->my_data;
-      my_data->exit_status = -1;
-      lock_acquire(my_data->lock);
-      my_data->ref_cnt--;
-      lock_release(my_data->lock);
-      sema_up(my_data->sema);
+
+      // // @Aaron get/set shared data to notify parent in case parent waits
+      // child_t* my_data = thread_current()->pcb->my_data;
+      // my_data->exit_status = -1;
+      // lock_acquire(my_data->ref_cnt_lock);
+      // my_data->ref_cnt--;
+      // lock_release(my_data->ref_cnt_lock);
+      // sema_up(my_data->sema);
+
       printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
       process_exit();
       NOT_REACHED();
