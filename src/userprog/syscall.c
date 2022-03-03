@@ -153,7 +153,6 @@ static struct file_item* fd_to_file(int fd) {
   } else {
     return NULL;
   }
-  
 }
 
 
@@ -210,11 +209,9 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
   const char* buffer = (char*) args[2];
 
   // check characters in buffer args[2]
-  // check_valid_frame(f, (uint32_t*) &(buffer[0]), sizeof(char*) - 1);
   for (size_t i=0; i < strlen(buffer); i++)
   {
     check_ptr(buffer + i, f); // buffer is char* type so buffer+1 actually adds 1
-    // check_valid_frame(f, (uint32_t*) &(buffer[i]), sizeof(char*) - 1);
   }
 
   int fd = (int) args[1];
@@ -250,7 +247,6 @@ static void write_syscall(intr_frame_t* f, uint32_t* args) {
 }
 
 static void remove_syscall(intr_frame_t* f, uint32_t* args) {
-  check_ptr((void*) args[1], f);
   char* f_name = (char*) args[1];
   lock_acquire(&f_lock);
   f->eax = filesys_remove(f_name);
@@ -296,7 +292,6 @@ static void syscall_handler(intr_frame_t* f) {
       break;
 
   	case SYS_READ:
-			// check_ptr((void*) args[1], f); // verify args
       check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(unsigned));
       do_read(f, args);
       break;
@@ -308,9 +303,7 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_CREATE:
-			; // verify args
-      // TODO: check if this is all good
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));  // verify args
       if ((char*) args[1] == NULL || ptr_invalid((uint32_t*) args[1])) {
           exit_sys(f, -1);
       }
@@ -320,13 +313,12 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_REMOVE:
-			; // verify args
+			check_ptr((void*) args[1], f); // verify args
       remove_syscall(f, args);
       break;
     
     case SYS_FILESIZE:
-			; // verify args
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int));
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int));  // verify args
       fd = (int) args[1];
       fi = fd_to_file(fd);
       if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
@@ -339,11 +331,10 @@ static void syscall_handler(intr_frame_t* f) {
       break;
     
     case SYS_SEEK:
-			; // verify args
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));  // verify args
       fd = (int) args[1];
       fi = fd_to_file(fd);
-      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      if (fi == NULL) {
         exit_sys(f, -1);
       }
       infile = fi->infile;
@@ -356,7 +347,7 @@ static void syscall_handler(intr_frame_t* f) {
 			check_valid_frame(f, args, sizeof(char*) + sizeof(int));
       fd = (int) args[1];
       fi = fd_to_file(fd);
-      if (fi == NULL) { //TODO currently calling on stdin/out will be true here. Is this correct behavior?
+      if (fi == NULL) {
         exit_sys(f, -1);
       }
       infile = fi->infile;
@@ -370,7 +361,7 @@ static void syscall_handler(intr_frame_t* f) {
       fd = (int) args[1];
       struct list_elem* e = fd_to_list_elem(fd);
       fi = list_entry(e, struct file_item, elem);
-      if (fi == NULL) {
+      if (!e || !fi) {
         exit_sys(f, -1);
       }
       infile = fi->infile;
@@ -378,21 +369,6 @@ static void syscall_handler(intr_frame_t* f) {
       file_close(infile);
       list_remove(e);
       free(fi);
-
-      //TODO: remove the file_item from active_files
-      // struct file_item* f_i;
-      // struct list active_files = thread_current()->pcb->active_files;
-      // for (struct list_elem *e = list_begin(&active_files);
-      //       e != list_end(&active_files); 
-      //       e = list_next(e)) 
-      // {
-      //   f_i = list_entry(e, struct file_item, elem);
-      //   if (f_i->fd == fi->fd) {
-      //     list_remove(e);
-      //     break;
-      //   }
-      // }
-      //free(f);
       lock_release(&f_lock);
       break;
 

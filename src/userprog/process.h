@@ -49,7 +49,7 @@ struct process {
   struct list child_list;
   child_t* my_data;
 
-  // for file_allow_write in process_exit
+  // for file_close in process_exit
   struct file* my_file;
 };
 

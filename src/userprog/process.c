@@ -261,7 +261,11 @@ void process_exit(int exit_status) {
     NOT_REACHED();
   }
 
-  // AAron
+  lock_acquire(&f_lock);
+  file_close(thread_current()->pcb->my_file); // allow write to executable
+  lock_release(&f_lock);
+
+  // print process name and exit status
   printf("%s: exit(%d)\n", cur->pcb->process_name, exit_status);
 
   // get/set shared data to notify parent in case parent waits
@@ -269,7 +273,7 @@ void process_exit(int exit_status) {
   my_data->exit_status = exit_status;
   sema_up(&my_data->wait_sema);
 
-  // TODO: close and free our files
+  // close and free all active files
   struct list* active_files = &thread_current()->pcb->active_files;
   struct list_elem* e = list_begin(active_files);
   struct file_item* fi;
@@ -304,10 +308,6 @@ void process_exit(int exit_status) {
   if (my_data->ref_cnt == 0) {
     free(my_data);
   }
-
-  // lock_acquire(&f_lock);
-  // file_close(thread_current()->pcb->my_file); // allow write to executable
-  // lock_release(&f_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -521,7 +521,9 @@ bool load(const char* fname_and_args, void (**eip)(void), void** esp) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+  if (!success) {
+    file_close(file);
+  }
   return success;
 }
 
