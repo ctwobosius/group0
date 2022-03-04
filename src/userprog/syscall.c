@@ -26,9 +26,11 @@ void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
 }
 
-/* All of these are static functions to avoid "no previous prototype for function" */
+/* All of these are static functions to avoid "no previous prototype for function".
+  All syscalls assume arguments that won't cause a kernel panic.
+ */
 
-static bool ptr_invalid(const uint32_t* ptr) {
+static bool ptr_invalid(const void* ptr) {
   return 
     ptr == NULL || // null pointer
     !is_user_vaddr(ptr) || // above PHYS_BASE, illegal pointer, section A.3
@@ -65,15 +67,14 @@ static struct file_item* init_file(int fd, struct file* file, char* f_name) {
 /* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARG_BYTES 
 to ensure we don't read a bad byte both at the beginning and end*/
 static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_arg_bytes) {
-  // we do - 4 because we don't want to check into the next word (last byte is right before next word)
+  // we do - 4 because we don't want to check into the next word 
+  // (last byte is right before next word)
   uint32_t* border = args + num_arg_bytes - 4;
   check_ptr(args, f);
   check_ptr(border, f);
 }
 
 static void syscall_open(intr_frame_t* f, uint32_t* args) {
-  check_valid_frame(f, args, sizeof(char*) + sizeof(char*));
-  // terminate_if_invalid(f, (uint32_t*) args[1]);
   lock_acquire(&f_lock);
   struct file* file = filesys_open((char *) args[1]);
   if (file == NULL) {
@@ -82,8 +83,6 @@ static void syscall_open(intr_frame_t* f, uint32_t* args) {
     return;
   }
   int fd = next_fd(args);
-
-  // may want to put that in init_file incase we need to create files again, eg:
   struct file_item* new_file = init_file(fd, file, (char*) args[1]);
 
   list_push_front(thread_current()->pcb->active_files, &new_file->elem);
@@ -115,25 +114,13 @@ static struct file_item* fd_to_file(int fd) {
   }
 }
 
-// called from syscall_handler to actually do the reading
-static void syscall_read(intr_frame_t* f, uint32_t* args) {
-  check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t));
-  char* buf = (char*) args[2];
-  size_t size = (size_t) args[3];
-
-  // check characters in buf args[2]
-  check_valid_frame(f, (uint32_t*) &(buf[0]), sizeof(char*) - 1);
-  for (size_t i=0; i < strlen(buf); i++) {
-    check_valid_frame(f, (uint32_t*) &(buf[i]), sizeof(char*) - 1);
-  }
-
-  int fd = (int) args[1];
+static void syscall_read(intr_frame_t* f, int fd, char* buf, off_t size) {
   if (fd == STDOUT_FILENO) {
     f->eax = -1;
     return;
   } else if (fd == STDIN_FILENO) {
     // read from stdin until EOF or size is hit
-    size_t i = 0;
+    off_t i = 0;
     for(; i < size; i++) {
       char c = input_getc();
       buf[i] = c;
@@ -149,7 +136,7 @@ static void syscall_read(intr_frame_t* f, uint32_t* args) {
     f->eax = -1;
   } else {      // it's a file in the system, so acquire lock and read
     lock_acquire (&f_lock);
-	  f->eax = file_read(fi->infile, (void *)args[2], (off_t)args[3]);
+	  f->eax = file_read(fi->infile, (void *)buf, size);
 	  lock_release (&f_lock);
   }
 }
@@ -224,6 +211,16 @@ static struct file* get_file_or_exit(intr_frame_t* f, int fd)
   return fi->infile;
 }
 
+
+static void syscall_filesize(intr_frame_t* f, int fd)
+{
+  struct file* infile = get_file_or_exit(f, fd); // Will exit if fd is stdin/out.
+  lock_acquire(&f_lock);
+  f->eax = file_length(infile);
+  lock_release(&f_lock);
+}
+
+
 static void syscall_tell(intr_frame_t* f, int fd) {
   struct file* infile = get_file_or_exit(f, fd);
   lock_acquire(&f_lock);
@@ -238,8 +235,6 @@ static void syscall_seek(intr_frame_t* f, int fd, off_t pos) {
   lock_release(&f_lock); 
 }
 
-
-
 static void syscall_handler(intr_frame_t* f) {
   uint32_t* args = ((uint32_t*)f->esp);
   check_valid_frame(f, args, sizeof(char*));
@@ -247,10 +242,9 @@ static void syscall_handler(intr_frame_t* f) {
   switch (args[0]) {
     case SYS_EXEC:
       check_valid_frame(f, args, sizeof(char*) + sizeof(char*));
-			check_ptr((void *) args[1], f); // verify args
+			check_ptr((void *) args[1], f);
       pid_t pid = process_execute((char*) args[1]);
-      // TID_ERROR is -1, so if fails, fine to return pid     
-      f->eax = pid;
+      f->eax = pid; // TID_ERROR is -1, so if fails, fine to return pid  
       break;
     
     case SYS_WAIT:
@@ -262,51 +256,49 @@ static void syscall_handler(intr_frame_t* f) {
       break;
 
   	case SYS_OPEN:
-			check_ptr((void*) args[1], f); // verify args
+      check_valid_frame(f, args, sizeof(char*) + sizeof(char*));
+			check_ptr((void*) args[1], f);
       syscall_open(f, args);
       break;
 
   	case SYS_READ:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(unsigned));
-      syscall_read(f, args);
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(off_t));
+      int fd = (int) args[1];
+      char* buf = (char*) args[2];
+      off_t size = (off_t) args[3];
+      // check characters in buf (args[2])
+      for (size_t i=0; i < strlen(buf); i++) {
+        check_valid_frame(f, (uint32_t*) &(buf[i]), sizeof(char*) - 1);
+      }
+      syscall_read(f, fd, buf, size);
       break;
 
   	case SYS_WRITE:
       check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t));
-      check_ptr((void*) args[2], f); // verify args
+      check_ptr((void*) args[2], f);
       syscall_write(f, args);
       break;
     
     case SYS_CREATE:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));  // verify args
-      if ((char*) args[1] == NULL || ptr_invalid((uint32_t*) args[1])) {
-          syscall_exit(f, -1);
-      }
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));
+      check_ptr((void*) args[1], f); // not args[2] because that is a size, not address
       lock_acquire(&f_lock);
       f->eax = filesys_create((const char *)args[1], (off_t) args[2]);
       lock_release(&f_lock);
       break;
     
     case SYS_REMOVE:
-			check_ptr((void*) args[1], f); // verify args
+			check_ptr((void*) args[1], f);
       syscall_remove(f, (char*) args[1]);
       break;
     
     case SYS_FILESIZE:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int));  // verify args
-      int fd = (int) args[1];
-      struct file_item* fi = fd_to_file(fd);
-      if (fi == NULL) { // Will pass if calling on stdin/out.
-        syscall_exit(f, -1);
-      }
-      struct file* infile = fi->infile;
-      lock_acquire(&f_lock);
-      f->eax = file_length(infile);
-      lock_release(&f_lock); 
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int));
+      syscall_filesize(f, (int) args[1]); 
       break;
     
     case SYS_SEEK:
-      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));  // verify args
+      check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(off_t));
       syscall_seek(f, (int) args[1], (off_t) args[2]);
       break;
     
@@ -336,7 +328,3 @@ static void syscall_handler(intr_frame_t* f) {
       break;
   }
 }
-
-
-
-// general TODO: free all mallocs
