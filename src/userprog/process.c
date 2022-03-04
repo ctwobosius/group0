@@ -65,20 +65,17 @@ pid_t process_execute(const char* fname_and_args) {
     return TID_ERROR;
   strlcpy(fn_copy, fname_and_args, PGSIZE);
 
-  /* Aaron's addition: get filename for filesys_open */
   char fn_copy2[strlen(fname_and_args) + 1];
   strlcpy(fn_copy2, fname_and_args, strlen(fname_and_args) + 1);
 
   char* save_ptr;
   char* file_name = strtok_r(fn_copy2, " ", &save_ptr);
 
-// AAron
   child_t* new_child = NULL;
   if (thread_current()->pcb) {
     new_child = malloc(sizeof(child_t));
   }
 
-  // Calvin
   if (!new_child) {
     palloc_free_page(fn_copy);
     return TID_ERROR;
@@ -92,7 +89,6 @@ pid_t process_execute(const char* fname_and_args) {
     lock_init(&new_child->ref_cnt_lock);
     list_push_front(thread_current()->pcb->child_list, &new_child->elem);
   }
-  // Calvin
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, new_child);
@@ -159,10 +155,6 @@ static void start_process(void* new_child) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(fname_args, &if_.eip, &if_.esp);
   }
-
-  // printf("\nfname_args: %s", fname_args);  FOR DEBUGGING
-  // printf("\nload sema up: %d", (int) &t->pcb->my_data->load_sema);
-  // printf("\nthread tid: %d\n", t->pcb->my_data->tid);
 
   // aaron get child/parent shared data structure to update with load success status
   thread_current()->pcb->my_data->loaded = success;
