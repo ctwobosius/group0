@@ -42,11 +42,11 @@ struct process {
   struct thread* main_thread; /* Pointer to main thread */
   
   // for file ops
-  struct list active_files;
+  struct list* active_files;
   int next_fd;
 
   // for child processes
-  struct list child_list;
+  struct list* child_list;
   child_t* my_data;
 
   // for file_close in process_exit

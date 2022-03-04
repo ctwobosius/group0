@@ -81,8 +81,6 @@ void malloc_init(void) {
 /* Obtains and returns a new block of at least SIZE bytes.
    Returns a null pointer if memory is not available. */
 void* malloc(size_t size) {
-  // counter++;
-  // printf("\nmalloc count: %u", counter); // REMOVE when done debugging
   struct desc* d;
   struct block* b;
   struct arena* a;

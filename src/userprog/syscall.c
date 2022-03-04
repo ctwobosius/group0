@@ -21,28 +21,12 @@
 typedef struct intr_frame intr_frame_t;
 static void syscall_handler(intr_frame_t* f);
 
-// All of these are static functions are to avoid "no previous prototype for function"
-
-// // From section A.3 of the spec
-// /* Reads a byte at user virtual address UADDR. UADDR must be below PHYS_BASE.
-// Returns the byte value if successful, -1 if a segfault occurred. */
-// static int get_user (const uint8_t *uaddr) {
-//   int result;
-//   asm ("movl $1f, %0; movzbl %1, %0; 1:" : "=&a" (result) : "m" (*uaddr));
-//   return result;
-// }
-// /* Writes BYTE to user address UDST. UDST must be below PHYS_BASE. Returns
-// true if successful, false if a segfault occurred. */
-// static bool put_user (uint8_t *udst, uint8_t byte) {
-//   int error_code;
-//   asm ("movl $1f, %0; movb %b2, %1; 1:" : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-//   return error_code != -1;
-// }
-
 void syscall_init(void) { 
   lock_init(&f_lock);
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); 
 }
+
+/* All of these are static functions to avoid "no previous prototype for function" */
 
 static bool ptr_invalid(const uint32_t* ptr) {
   return 
@@ -63,11 +47,6 @@ static void check_ptr(const void* ptr, intr_frame_t* f) {
   }
 }
 
-static void terminate_if_invalid(intr_frame_t* f, uint32_t* ptr) {
-  if (ptr_invalid(ptr))
-    exit_sys(f, -1);
-}
-
 static int next_fd(uint32_t* args UNUSED) {
   int fd = thread_current()->pcb->next_fd;
   thread_current()->pcb->next_fd += 1;
@@ -86,29 +65,10 @@ static struct file_item* init_file(int fd, struct file* file, char* f_name) {
 /* IT IS NECESSARY to do this FOR ALL SYSCALLS, with the CORRECT NUM_ARG_BYTES 
 to ensure we don't read a bad byte both at the beginning and end*/
 static void check_valid_frame(intr_frame_t* f, uint32_t* args, size_t num_arg_bytes) {
-  // we do - 1 because we don't want to check into the next word (last byte is right before next word)
+  // we do - 4 because we don't want to check into the next word (last byte is right before next word)
   uint32_t* border = args + num_arg_bytes - 4;
-  // terminate_if_invalid(f, args);
-  // terminate_if_invalid(f, border);
   check_ptr(args, f);
   check_ptr(border, f);
-  
-  // // Check if memory on page boundary
-  // uint8_t* first_addr = (uint8_t*) args;
-  // uint8_t* last_addr = (uint8_t*) border; // should work since little endian
-  // int first_byte = get_user(first_addr);
-  // int last_byte = get_user(last_addr);
-  // bool could_not_read = first_byte == -1 || last_byte == -1;
-  // // check read permissions
-  // if (checking_read && could_not_read) {
-  //   exit_sys(f, -1);
-  // }
-  // else if (!checking_read &&
-  //           (!put_user(first_addr, first_byte)) //|| !put_user(last_addr, last_byte))
-  //         ) {
-  //   // unsuccessful write permissions
-  //   exit_sys(f, -1);
-  // }
 }
 
 static void do_open(intr_frame_t* f, uint32_t* args) {
@@ -126,14 +86,14 @@ static void do_open(intr_frame_t* f, uint32_t* args) {
   // may want to put that in init_file incase we need to create files again, eg:
   struct file_item* new_file = init_file(fd, file, (char*) args[1]);
 
-  list_push_front(&thread_current()->pcb->active_files, &new_file->elem);
+  list_push_front(thread_current()->pcb->active_files, &new_file->elem);
   lock_release(&f_lock);
   f->eax = fd;
 }
 
 static struct list_elem* fd_to_list_elem(int fd) {
   struct file_item* f;
-  struct list* active_files = &thread_current()->pcb->active_files;
+  struct list* active_files = thread_current()->pcb->active_files;
   for (struct list_elem *e = list_begin(active_files);
         e != list_end(active_files); 
         e = list_next(e)) 
@@ -155,32 +115,24 @@ static struct file_item* fd_to_file(int fd) {
   }
 }
 
-
 // called from syscall_handler to actually do the reading
 static void do_read(intr_frame_t* f, uint32_t* args) {
   check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t));
   char* buf = (char*) args[2];
   size_t size = (size_t) args[3];
-  // terminate_if_invalid(f, (uint32_t*) buf);
-  // terminate_if_invalid(f, (uint32_t*) (buf + size)); //check if end of buffer is valid
-  // check_ptr(buf, f);
-  // check_ptr(buf + size * sizeof(char*), f);
 
   // check characters in buf args[2]
   check_valid_frame(f, (uint32_t*) &(buf[0]), sizeof(char*) - 1);
-  for (size_t i=0; i < strlen(buf); i++)
-  {
+  for (size_t i=0; i < strlen(buf); i++) {
     check_valid_frame(f, (uint32_t*) &(buf[i]), sizeof(char*) - 1);
   }
 
   int fd = (int) args[1];
   if (fd == STDOUT_FILENO) {
-    //what is correct behavior?//TODO
     f->eax = -1;
     return;
-  }
-  else if (fd == STDIN_FILENO) {
-    //read from stdin until EOF or size is hit
+  } else if (fd == STDIN_FILENO) {
+    // read from stdin until EOF or size is hit
     size_t i = 0;
     for(; i < size; i++) {
       char c = input_getc();
@@ -193,12 +145,9 @@ static void do_read(intr_frame_t* f, uint32_t* args) {
     return;
   }
   struct file_item* fi = fd_to_file(fd);
-  if (fi == NULL) {
-    //file does not exist, so fail
+  if (fi == NULL) {   // file does not exist, so fail
     f->eax = -1;
-  }
-  else {
-    //it's a file in the system, so acquire lock and read
+  } else {      // it's a file in the system, so acquire lock and read
     lock_acquire (&f_lock);
 	  f->eax = file_read(fi->infile, (void *)args[2], (off_t)args[3]);
 	  lock_release (&f_lock);

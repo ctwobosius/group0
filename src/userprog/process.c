@@ -42,7 +42,8 @@ void userprog_init(void) {
   t->pcb = calloc(sizeof(struct process), 1);
   success = t->pcb != NULL;
 
-  list_init(&t->pcb->child_list);   // @Aaron
+  t->pcb->child_list = malloc(sizeof(struct list)); // malloc to avoid stack overflow
+  list_init(t->pcb->child_list);   // @Aaron
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -89,7 +90,7 @@ pid_t process_execute(const char* fname_and_args) {
     sema_init(&new_child->load_sema, 0);
     sema_init(&new_child->wait_sema, 0);
     lock_init(&new_child->ref_cnt_lock);
-    list_push_front(&thread_current()->pcb->child_list, &new_child->elem);
+    list_push_front(thread_current()->pcb->child_list, &new_child->elem);
   }
   // Calvin
 
@@ -98,13 +99,18 @@ pid_t process_execute(const char* fname_and_args) {
 
   if (tid == TID_ERROR){
     palloc_free_page(fn_copy);
+    list_remove(&new_child->elem);
+    free(new_child);
     return TID_ERROR;   // TID_ERROR == -1
   }
 
   new_child->tid = tid;
   sema_down(&new_child->load_sema);
-  if (!new_child->loaded)
+  if (!new_child->loaded) {
+    list_remove(&new_child->elem);
+    free(new_child);
     return -1;
+  }
   return tid;
 }
 
@@ -128,13 +134,14 @@ static void start_process(void* new_child) {
     new_pcb->pagedir = NULL;
     t->pcb = new_pcb;
 
-    // @Aaron initialize list of active_files
-    list_init(&new_pcb->active_files);
+    // @Aaron initialize list of active_files, malloc to avoid stack overflow
+    new_pcb->active_files = malloc(sizeof(struct list));
+    list_init(new_pcb->active_files);
     new_pcb->next_fd = 3;
 
-    // @Aaron initialize child list
-    // new_pcb->child_list = malloc(sizeof(struct list));
-    list_init(&new_pcb->child_list);
+    // @Aaron initialize child list, malloc to avoid stack overflow
+    new_pcb->child_list = malloc(sizeof(struct list));
+    list_init(new_pcb->child_list);
 
     // @Aaron initialize my_data (assuming I am a child process)
     new_pcb->my_data = child;
@@ -203,10 +210,7 @@ static void start_process(void* new_child) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid) {
-  // sema_down(&temporary);
-  // return 0;
-
-  struct list* child_list = &thread_current()->pcb->child_list;
+  struct list* child_list = thread_current()->pcb->child_list;
 
   if (list_empty(child_list)) {
     return -1;
@@ -215,14 +219,10 @@ int process_wait(pid_t child_pid) {
   bool found = false;
   child_t* child;
 
-  // Probably problem area
   for (struct list_elem *e = list_begin(child_list);
           (e != NULL) && (e != list_end(child_list));
           e = list_next(e))
   {
-    // DEBUGF("\nLOLOLOL %d\n", e);
-    // DEBUGF("\nis_begin: %d\n", (int) (e == list_begin(&child_list)));
-    
     child = list_entry(e, child_t, elem);
     if (child->tid == child_pid) {
       found = true;
@@ -234,7 +234,6 @@ int process_wait(pid_t child_pid) {
     return -1;
   }
 
-  // Maybe problem area
   sema_down(&child->wait_sema);    // this is the "wait" part
   int exit_status = child->exit_status;
 
@@ -274,7 +273,7 @@ void process_exit(int exit_status) {
   sema_up(&my_data->wait_sema);
 
   // close and free all active files
-  struct list* active_files = &thread_current()->pcb->active_files;
+  struct list* active_files = thread_current()->pcb->active_files;
   struct list_elem* e = list_begin(active_files);
   struct file_item* fi;
   lock_acquire(&f_lock);
@@ -285,8 +284,9 @@ void process_exit(int exit_status) {
     free(fi);
   }
   lock_release(&f_lock);
+  free(active_files);
 
-  struct list* child_list = &thread_current()->pcb->child_list;
+  struct list* child_list = thread_current()->pcb->child_list;
 
   if (!list_empty(child_list)) {
     child_t* child;
@@ -300,6 +300,7 @@ void process_exit(int exit_status) {
         lock_release(&child->ref_cnt_lock);
     }
   }
+  free(child_list);
 
   lock_acquire(&my_data->ref_cnt_lock);
   my_data->ref_cnt--;
