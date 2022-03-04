@@ -141,17 +141,7 @@ static void syscall_read(intr_frame_t* f, int fd, char* buf, off_t size) {
   }
 }
 
-static void syscall_write(intr_frame_t* f, uint32_t* args) {
-  const char* buffer = (char*) args[2];
-
-  // check characters in buffer args[2]
-  for (size_t i=0; i < strlen(buffer); i++)
-  {
-    check_ptr(buffer + i, f); // buffer is char* type so buffer+1 actually adds 1
-  }
-
-  int fd = (int) args[1];
-
+static void syscall_write(intr_frame_t* f, int fd, const char* buffer, off_t size) {
   lock_acquire(&f_lock);
   if (fd == STDIN_FILENO) { // stdin is read only
     f->eax = -1;
@@ -159,9 +149,7 @@ static void syscall_write(intr_frame_t* f, uint32_t* args) {
   else {
     // Check args
     check_ptr(buffer, f);
-
-    size_t size = (size_t) args[3];
-    size_t buffer_len = strlen(buffer);
+    off_t buffer_len = (off_t) strlen(buffer);
     if (fd == STDOUT_FILENO) { // stdout
       if (buffer_len > size) {
         putbuf(buffer, size);
@@ -175,7 +163,7 @@ static void syscall_write(intr_frame_t* f, uint32_t* args) {
       if (file == NULL)
         f->eax = -1;
       else {
-        f->eax = file_write(file->infile, buffer, size);
+        f->eax = file_write(file->infile, (const void*) buffer, size);
       }
     }
   }
@@ -275,8 +263,16 @@ static void syscall_handler(intr_frame_t* f) {
 
   	case SYS_WRITE:
       check_valid_frame(f, args, sizeof(char*) + sizeof(int) + sizeof(char*) + sizeof(size_t));
-      check_ptr((void*) args[2], f);
-      syscall_write(f, args);
+      const char* buffer = (char*) args[2];
+      check_ptr(buffer, f);
+      // check characters in buffer
+      for (size_t i=0; i < strlen(buffer); i++) {
+        check_ptr(buffer + i, f); // buffer is char* type so buffer+1 actually adds 1
+      }
+      fd = (int) args[1];
+      size = (off_t) args[3];
+
+      syscall_write(f, fd, buffer, size);
       break;
     
     case SYS_CREATE:
