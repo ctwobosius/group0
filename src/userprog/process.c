@@ -204,10 +204,6 @@ static void start_process(void* new_child) {
 int process_wait(pid_t child_pid) {
   struct list* child_list = thread_current()->pcb->child_list;
 
-  if (list_empty(child_list)) {
-    return -1;
-  }
-
   bool found = false;
   child_t* child;
 
