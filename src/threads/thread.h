@@ -90,7 +90,7 @@ struct thread {
   int priority;              /* Priority. */
   struct list_elem allelem;  /* List element for all threads list. */
   // struct thread* parent;  // for accessing shared data between parent/child
-  // bad aaron
+  int64_t wakeup_time;    // Should match up with global ticks in threads.c
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */

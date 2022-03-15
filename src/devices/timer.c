@@ -20,6 +20,9 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+// Holds threads to be awakened later
+static struct list sleeping_threads;
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -35,6 +38,7 @@ static void real_time_delay(int64_t num, int32_t denom);
 void timer_init(void) {
   pit_configure_channel(0, 2, TIMER_FREQ);
   intr_register_ext(0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleeping_threads);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -73,14 +77,29 @@ int64_t timer_ticks(void) {
    should be a value once returned by timer_ticks(). */
 int64_t timer_elapsed(int64_t then) { return timer_ticks() - then; }
 
+// orders from least to greatest wakeup time
+static bool sort_wake_time(const struct list_elem* e1, const struct list_elem* e2,
+                           void* aux) {
+  struct thread* t1 = list_entry(e1, struct thread, elem);
+  struct thread* t2 = list_entry(e2, struct thread, elem);
+  return t1->wakeup_time <= t2->wakeup_time;
+}
+
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void timer_sleep(int64_t ticks) {
-  int64_t start = timer_ticks();
-
   ASSERT(intr_get_level() == INTR_ON);
-  while (timer_elapsed(start) < ticks)
-    thread_yield();
+  if (ticks > 0) {
+    int64_t start = timer_ticks();
+    
+    enum intr_level prev_intr_lvl = intr_disable();
+    // critical section
+    thread_current()->wakeup_time = start + ticks;
+    list_insert_ordered(&sleeping_threads, &thread_current()->elem, sort_wake_time, NULL);
+    thread_block();
+    // end critical section
+    intr_set_level(prev_intr_lvl);
+  } 
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -128,6 +147,16 @@ void timer_print_stats(void) { printf("Timer: %" PRId64 " ticks\n", timer_ticks(
 /* Timer interrupt handler. */
 static void timer_interrupt(struct intr_frame* args UNUSED) {
   ticks++;
+  if (!list_empty(&sleeping_threads)) {
+    struct list_elem* current = list_front(&sleeping_threads);
+    struct thread* t = list_entry(current, struct thread, elem);
+    while (!list_empty(&sleeping_threads) && ticks >= t->wakeup_time) {
+      current = list_remove(current);
+      t->wakeup_time = -1;
+      thread_unblock(t);
+      t = list_entry(current, struct thread, elem);
+    }
+  }
   thread_tick();
 }
 
