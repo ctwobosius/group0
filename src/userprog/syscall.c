@@ -30,6 +30,9 @@ void syscall_init(void) {
   All syscalls assume arguments that won't cause a kernel panic.
  */
 
+
+
+
 static bool ptr_invalid(const void* ptr) {
   return 
     ptr == NULL || // null pointer
@@ -52,6 +55,18 @@ static void check_ptr(const void* ptr, intr_frame_t* f) {
 static int next_fd(uint32_t* args UNUSED) {
   int fd = thread_current()->pcb->next_fd;
   thread_current()->pcb->next_fd += 1;
+  return fd;
+}
+
+static char next_lock(uint32_t* args UNUSED) {
+  char fd = thread_current()->pcb->next_lock;
+  thread_current()->pcb->next_lock = (char) thread_current()->pcb->next_lock + 1;
+  return fd;
+}
+
+static char next_sema(uint32_t* args UNUSED) {
+  char fd = thread_current()->pcb->next_sema;
+  thread_current()->pcb->next_sema = (char) thread_current()->pcb->next_sema + 1;
   return fd;
 }
 
@@ -222,6 +237,67 @@ static void syscall_seek(intr_frame_t* f, int fd, off_t pos) {
   file_seek(infile, pos);
   lock_release(&f_lock); 
 }
+
+
+static void syscall_lock_init(intr_frame_t* f, uint32_t* args) {
+  //verify args and frame //exit with 0 if fail
+  //check_valid_frame(f, args, sizeof(char*));
+  if (args[1] == NULL) { //not a complete check. eventually should check other edge cases, such as duplicate
+    f->eax = 0;
+    return;
+  }
+  
+  //acquire f_lock
+  lock_acquire(&f_lock);
+  //malloc new lock
+  struct lock* temp = malloc(sizeof(struct lock));
+  
+  //initialize kernel lock
+  lock_init(temp);
+
+  //initialize scaffolding
+  struct lock_item* li = malloc(sizeof(struct lock_item));
+  li->c = *((char*)args[1]);
+  li->lock = temp;
+
+  //register new lock
+  list_push_front(thread_current()->pcb->registered_locks, &li->elem);
+
+  //release f_lock
+  lock_release(&f_lock);
+  //exit with 1
+  f->eax = 1;
+}
+
+static void syscall_sema_init(intr_frame_t* f, uint32_t* args) {
+  if (args[1] == NULL || args[2] == NULL) { //not a complete check. eventually should check other edge cases, such as duplicate
+    f->eax = 0;
+    return;
+  }
+  //acquire f_lock
+  lock_acquire(&f_lock);
+  //malloc new sema
+  struct semaphore* temp = malloc(sizeof(struct semaphore));
+  
+  //initialize kernel sema
+  sema_init(temp, args[2]);
+
+  //initialize scaffolding
+  struct sema_item* si = malloc(sizeof(struct lock_item));
+  si->c = *((char*)args[1]);
+  si->sema = temp;
+
+  //register new lock
+  list_push_front(thread_current()->pcb->registered_semas, &si->elem);
+
+  //release f_lock
+  lock_release(&f_lock);
+  //exit with 1
+  f->eax = 1;
+
+}
+
+
 
 static void syscall_handler(intr_frame_t* f) {
   uint32_t* args = ((uint32_t*)f->esp);

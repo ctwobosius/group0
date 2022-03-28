@@ -45,6 +45,14 @@ struct process {
   struct list* active_files;
   int next_fd;
 
+  //for user locks and semas
+  struct list* registered_semas;
+  char next_sema;
+
+  struct list* registered_locks;
+  char next_lock;
+
+
   // for child processes
   struct list* child_list;
   child_t* my_data;

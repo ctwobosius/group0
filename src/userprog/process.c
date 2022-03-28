@@ -138,6 +138,16 @@ static void start_process(void* new_child) {
     list_init(new_pcb->active_files);
     new_pcb->next_fd = 3;
 
+    // @Liam do the same thing as active files but for lists/semas
+    new_pcb->registered_semas = malloc(sizeof(struct list));
+    list_init(new_pcb->registered_semas);
+    new_pcb->next_sema = (char) 0; 
+
+    new_pcb->registered_locks = malloc(sizeof(struct list));
+    list_init(new_pcb->registered_locks);
+    new_pcb->next_lock = (char) 0; 
+
+
     // @Aaron initialize child list, malloc to avoid stack overflow
     new_pcb->child_list = malloc(sizeof(struct list));
     list_init(new_pcb->child_list);
