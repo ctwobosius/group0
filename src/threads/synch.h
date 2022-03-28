@@ -16,6 +16,20 @@ bool sema_try_down(struct semaphore*);
 void sema_up(struct semaphore*);
 void sema_self_test(void);
 
+
+/* lock scaffolding for syscall */
+struct lock_item {
+  struct lock* lock; 
+  char c;
+  struct list_elem elem;
+};
+
+struct sema_item {
+  struct semaphore* sema; 
+  char c;
+  struct list_elem elem;
+};
+
 /* Lock. */
 struct lock {
   struct thread* holder;      /* Thread holding lock (for debugging). */
