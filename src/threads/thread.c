@@ -521,13 +521,21 @@ bool priority_compare(thread_t* t1, thread_t* t2, void* aux) {
 }
 
 struct thread* get_highest_priority_thread(struct list* ready_list) {
-  return list_max(ready_list, priority_compare, NULL);
+  return list_entry(
+    list_max(ready_list, priority_compare, NULL), 
+    thread_t, 
+    elem
+  );
 }
 
 static struct thread* thread_schedule_prio(void) {
   if (!list_empty(&prio_ready_list)) {
     // loop through all threads and choose highest effective priority
-    return list_entry(list_pop_front(&prio_ready_list), struct thread, elem);
+
+    thread_t* t = get_highest_priority_thread(&prio_ready_list);
+    
+    list_remove(&t->elem);
+    return t;
   } else
     return idle_thread;
 }
