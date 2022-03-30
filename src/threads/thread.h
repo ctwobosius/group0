@@ -87,10 +87,8 @@ struct thread {
   enum thread_status status; /* Thread state. */
   char name[16];             /* Name (for debugging purposes). */
   uint8_t* stack;            /* Saved stack pointer. */
-  int priority;              /* Priority. */
   struct list_elem allelem;  /* List element for all threads list. */
   // struct thread* parent;  // for accessing shared data between parent/child
-  int64_t wakeup_time;    // Should match up with global ticks in threads.c
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
@@ -102,6 +100,15 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+
+  // Project 2 pt1
+  int64_t wakeup_time;    // Should match up with global  ticks in threads.c
+
+  // Project 2 pt2
+  struct list* acquired_locks;  // Should malloc so thread doesn't grow big
+  struct lock* donee_lock;  // lock of potential thread that this thread is donating to, NULL initially
+  uint8_t effective_priority;  // For caching purposes, know from spec it is between 0 and 63 (8 bits)
+  uint8_t priority;  // Given to us, but changed type to be more memory efficient
 };
 
 /* Types of scheduler that the user can request the kernel

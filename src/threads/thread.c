@@ -24,6 +24,11 @@
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
 
+// Project 2 pt 2
+static struct list prio_ready_list;
+typedef struct thread thread_t;
+typedef struct lock lock_t;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -158,6 +163,17 @@ void thread_print_stats(void) {
          user_ticks);
 }
 
+// Project 2 pt2
+void yield_if_should() {
+  /* No need to check if current thread is highest prio, because 
+  scheduler will do that if we yield */
+  if (intr_context()) {
+    intr_yield_on_return();
+  } else {
+    thread_yield();
+  }
+}
+
 /* Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
@@ -216,6 +232,10 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   /* Add to run queue. */
   thread_unblock(t);
 
+  // Project2pt2
+  if (active_sched_policy == SCHED_PRIO)
+    yield_if_should();
+
   return tid;
 }
 
@@ -243,7 +263,10 @@ static void thread_enqueue(struct thread* t) {
 
   if (active_sched_policy == SCHED_FIFO)
     list_push_back(&fifo_ready_list, &t->elem);
-  else
+  // Project 2 Pt 2
+  else if (active_sched_policy == SCHED_PRIO) {
+    list_push_back(&prio_ready_list, &t->elem);
+  } else
     PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
 }
 
@@ -464,8 +487,40 @@ static struct thread* thread_schedule_fifo(void) {
 }
 
 /* Strict priority scheduler */
+uint8_t calc_effective_priority(thread_t* t, int highest_priority) {
+  if (highest_priority < t->effective_priority) {
+    highest_priority = t->effective_priority;
+  }
+  if (highest_priority < t->priority) {
+    highest_priority = t->priority;
+  }
+  // for (lock in t->acquired_locks) {
+  //   for (waiter in lock->semaphore->waiters) {
+  //     uint8_t potentially_higher = calc_effective_priority(waiter, highest_priority);
+  //     highest_priority = max(highest_priority, potentially_higher);
+  //   }
+  // }
+  return highest_priority;
+}
+
+bool priority_compare(thread_t* t1, thread_t* t2, void* aux) {
+
+  // // assumes cached values are correct
+  // return t1->effective_priority < t2->effective_priority;
+
+  return calc_effective_priority(t1, 0) < calc_effective_priority(t2, 0);
+}
+
+struct thread* get_highest_priority_thread(struct list* ready_list) {
+  return list_max(ready_list, priority_compare, NULL);
+}
+
 static struct thread* thread_schedule_prio(void) {
-  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  if (!list_empty(&prio_ready_list)) {
+    // loop through all threads and choose highest effective priority
+    return list_entry(list_pop_front(&prio_ready_list), struct thread, elem);
+  } else
+    return idle_thread;
 }
 
 /* Fair priority scheduler */
