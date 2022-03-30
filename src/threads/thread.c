@@ -27,7 +27,8 @@ static struct list fifo_ready_list;
 // Project 2 pt 2
 static struct list prio_ready_list;
 typedef struct thread thread_t;
-typedef struct lock lock_t;
+typedef struct lock_item lock_item_t;
+typedef struct thread thread_t;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -494,12 +495,20 @@ uint8_t calc_effective_priority(thread_t* t, int highest_priority) {
   if (highest_priority < t->priority) {
     highest_priority = t->priority;
   }
-  // for (lock in t->acquired_locks) {
-  //   for (waiter in lock->semaphore->waiters) {
-  //     uint8_t potentially_higher = calc_effective_priority(waiter, highest_priority);
-  //     highest_priority = max(highest_priority, potentially_higher);
-  //   }
-  // }
+  for ( struct list_elem* e = list_begin(t->acquired_locks);
+        e != list_end(t->acquired_locks);
+        e = list_next(e)) {
+    lock_item_t* l = list_entry(e, lock_item_t, elem);
+    for ( struct list_elem* e2 = list_begin(&l->lock->semaphore.waiters);
+          e2 != list_end(&l->lock->semaphore.waiters);
+          e2 = list_next(e2)) {
+      thread_t* waiter = list_entry(e2, thread_t, elem);
+      uint8_t potentially_higher = calc_effective_priority(waiter, highest_priority);
+      if (highest_priority < potentially_higher) {
+        highest_priority = potentially_higher;
+      }
+    }
+  }
   return highest_priority;
 }
 
